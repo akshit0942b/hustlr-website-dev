@@ -1,0 +1,52 @@
+import type { NextApiRequest, NextApiResponse } from "next";
+import {
+  checkIfExists,
+  extractEmailFromAuthHeader,
+  insertVettingData,
+  markAsComplete,
+  prepareVettingData,
+  updateVettingData,
+} from "@/src/lib/vettingUtils";
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const jwtEmail = extractEmailFromAuthHeader(req);
+  if (!jwtEmail) {
+    return res.status(401).json({ error: "Invalid or missing token" });
+  }
+
+  try {
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    if (jwtEmail !== body.email) {
+      return res.status(401).json({ error: "JWT and data email mismatch" });
+    }
+
+    // convert cgpa string to float
+    const data = prepareVettingData(body);
+    console.log("data to save: ", data);
+    // check if some data already exists
+    const existing = await checkIfExists(data.email);
+
+    if (req.query.final === "true") {
+      await markAsComplete(data);
+      return res.status(200).json({ success: true, final: true });
+    }
+
+    if (existing) {
+      await updateVettingData(data);
+    } else {
+      await insertVettingData(data);
+    }
+
+    return res.status(200).json({ success: true, final: false });
+  } catch (error) {
+    console.error("Error saving vetting data:", error);
+    return res.status(500).json({ error: "Failed to save vetting data" });
+  }
+}

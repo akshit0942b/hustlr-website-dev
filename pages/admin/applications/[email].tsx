@@ -1,0 +1,87 @@
+import { Button } from "@/components/ui/button";
+import { createToken, verifyToken } from "@/src/lib/jwt";
+import { ApplicationStatusCard } from "@/src/components/admin/ApplicationStatusMsg";
+import { StatusUpdateForm } from "@/src/components/admin/ApplicationStatusUpdate";
+import Nav from "@/src/components/Nav";
+import { GetVettingProgressResponse } from "@/src/lib/schemas/formSchema";
+import VettingDataDisplay from "@/src/components/vetting/VettingDetails";
+import { getVettingProgress } from "@/src/lib/vettingUtils";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { GetServerSideProps } from "next";
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const emailId = context.params?.email;
+  const adminJwtToken = context.req.cookies.session;
+  const payload = verifyToken(adminJwtToken as string);
+
+  if (typeof payload === "string" || payload.role !== "admin") {
+    return {
+      redirect: {
+        destination: "/admin/login",
+        permanent: false,
+      },
+    };
+  }
+  const userJwtToken = createToken(emailId as string);
+  const res = await getVettingProgress(emailId as string);
+  return {
+    props: { res, userJwtToken, adminJwtToken },
+  };
+};
+
+export default function ProjectInfoPage({
+  res,
+  adminJwtToken,
+  userJwtToken,
+}: {
+  res: GetVettingProgressResponse;
+  adminJwtToken: string;
+  userJwtToken: string;
+}) {
+  if (!res.success) {
+    return (
+      <>
+        <Nav />
+        <main className="md:pt-32 bg-white">
+          <h1 className="font-bold text-3xl text-center">Project Details</h1>
+          <div className="p-3 max-w-screen-lg mx-auto">
+            <p className="text-red-500">
+              No data found for the provided email.
+            </p>
+          </div>
+        </main>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Nav />
+      <main className="py-32 bg-white">
+        <div className="max-w-screen-lg mx-auto">
+          <Button asChild variant={"outline"} className="m-5">
+            <a href="/admin/" className="flex items-center gap-2 font-sans">
+              <ArrowLeft /> Back to Applications
+            </a>
+          </Button>
+          <h1 className="font-bold text-3xl text-center">
+            Application Details
+          </h1>
+
+          <ApplicationStatusCard data={res.data} />
+          <div className="p-10 max-w-screen-lg mx-auto font-sans">
+            <VettingDataDisplay jwtToken={userJwtToken} data={res.data} />
+          </div>
+
+          {/* Application Status Update Form */}
+
+          <StatusUpdateForm
+            jwtToken={adminJwtToken}
+            currentStatus={res.data.status || "not_completed"}
+            email={res.data.email}
+          />
+        </div>
+      </main>
+    </>
+  );
+}
