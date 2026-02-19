@@ -14,21 +14,24 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/src/lib/utils";
-import { format } from "date-fns";
+import { format, differenceInYears } from "date-fns";
 import { CalendarIcon } from "lucide-react";
-import React from "react";
+import React, { useState } from "react";
 import { FieldValues, UseFormReturn } from "react-hook-form";
 import { FormFieldProp } from "../../lib/schemas/formSchema";
 
 function DobInput({ form }: { form: FormFieldProp }) {
+  const [open, setOpen] = useState(false);
   return (
     <FormField
       control={form.control}
       name="dob"
-      render={({ field }) => (
+      render={({ field }) => {
+        const age = field.value ? differenceInYears(new Date(), field.value) : null;
+      return (
         <FormItem className="flex flex-col">
           <FormLabel>Date of birth</FormLabel>
-          <Popover>
+          <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <FormControl>
                 <Button
@@ -52,7 +55,10 @@ function DobInput({ form }: { form: FormFieldProp }) {
                 className="font-sans"
                 mode="single"
                 selected={field.value}
-                onSelect={field.onChange}
+                onSelect={(date) => {
+                  field.onChange(date);
+                  setOpen(false);
+                }}
                 disabled={(date) =>
                   date > new Date() || date < new Date("1900-01-01")
                 }
@@ -61,11 +67,18 @@ function DobInput({ form }: { form: FormFieldProp }) {
             </PopoverContent>
           </Popover>
           <FormDescription>
-            Your date of birth is used to calculate your age.
+           {age !== null ? (
+                <span className="text-blue-600 font-medium">
+                  You are {age} years old
+                </span>
+              ) : (
+                "Your date of birth is used to calculate your age."
+              )}
           </FormDescription>
           <FormMessage />
         </FormItem>
-      )}
+      );
+      }}
     />
   );
 }

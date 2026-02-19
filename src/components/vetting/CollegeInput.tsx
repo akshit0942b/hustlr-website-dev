@@ -30,6 +30,7 @@ import { useEffect, useState } from "react";
 import { FormFieldProp } from "../../lib/schemas/formSchema";
 
 export function CollegeInput({ form }: { form: FormFieldProp }) {
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [colleges, setColleges] = useState<{ label: string; value: string }[]>(
     []
@@ -66,7 +67,7 @@ export function CollegeInput({ form }: { form: FormFieldProp }) {
       render={({ field }) => (
         <FormItem className="flex flex-col">
           <FormLabel>College/University</FormLabel>
-          <Popover>
+          <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <FormControl>
                 <Button
@@ -106,6 +107,7 @@ export function CollegeInput({ form }: { form: FormFieldProp }) {
                         key={college.value}
                         onSelect={() => {
                           form.setValue("college", college.value);
+                          setOpen(false);
                         }}
                       >
                         {college.label}

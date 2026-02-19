@@ -10,7 +10,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import CategoryRadio from "./CategoryRadio";
 import {
@@ -20,28 +20,63 @@ import {
 } from "../../lib/schemas/formSchema";
 import { CollegeInput } from "./CollegeInput";
 import DobInput from "./DobInput";
+import PhoneInput from "./PhoneInput"; 
+import { DegreeInput } from "./DegreeInput"; 
+import { BranchInput } from "./BranchInput"; 
+import { CollegeEmailInput } from "./CollegeEmailInput"; 
 import { CgpaInput } from "./CgpaInput";
 import { NameInput } from "./NameInput";
 import { EmailInput } from "./EmailInput";
-import { SkillsInput } from "./SkillsInput";
+import { SkillsProficiencyInput } from "./SkillsProficiencyInput";
+import { ProjectsInput } from "./ProjectsInput";
+import { ExperienceInput } from "./ExperienceInput";
+import { HackathonInput } from "./HackathonInput";
+import { OpenSourceInput } from "./OpenSourceInput";
+import { ResearchCompetitiveInput } from "./ResearchCompetitiveInput";
 import { LinksInput } from "./LinksInput";
 import { Hourglass } from "lucide-react";
 import { CollegeYearInput } from "./CollegeYearInput";
 import { AwardsInput } from "./AwardsInput";
 import UploadFileInput from "./UploadFile";
-import { LocationInput } from "./LocationInput";
 import { NextRouter } from "next/router";
 import { toast } from "sonner";
 
 const steps = [
-  { name: "Category Selection", desc: "Tell us what you do best" },
-  {
-    name: "Tell us about yourself",
-    desc: "Share your background and education",
+  { 
+    name: "Category Selection", 
+    desc: "What do you do best? Your choice decides the type of projects you will be shown on Hustlr. You can only choose ONE category",
   },
   {
-    name: "Experience and Awards",
-    desc: "We use this to learn more about your projects and accolades",
+    name: "Tell us about yourself",
+    desc: "We use this to verify your students status and understand your academic background",
+  },
+  {
+    name: "Skills & Proficiency",
+    desc: "The following questions help us better understand your skillset",
+  },
+  {
+    name: "Projects",
+    desc: "Showcase your best work and experience",
+  },
+  {
+    name: "Experience",
+    desc: "Tell us about your professional and practical experience",
+  },
+  {
+    name: "Hackathons",
+    desc: "Showcase hackathons you've participated in and your achievements",
+  },
+  {
+    name: "Open Source",
+    desc: "Tell us about your open source contributions and impact",
+  },
+  {
+    name: "Research & Competitive Programming",
+    desc: "Tell us about your research papers and competitive programming achievements",
+  },
+  {
+    name: "Awards and Documents",
+    desc: "We use this to learn more about your accolades and verify your documents",
   },
 ];
 
@@ -76,14 +111,33 @@ export default function VettingForm({
       "name",
       "email",
       "dob",
+      "phone",
       "college",
+      "collegeEmail",
+      "degree",
+      "branch",
       "year",
       "cgpa",
+      "resume",
       "transcript",
       "studentId",
-      "location",
     ],
-    2: ["resume", "linkedin", "github", "skills", "awards"],
+    2: ["skills"],
+    3: ["projects"],
+    4: ["experiences"],
+    5: ["hackathons"],
+    6: ["openSource"],
+    7: [
+      "hasPublishedResearch",
+      "researchPapers",
+      "codeforcesRating",
+      "codeforcesUserId",
+      "codechefRating",
+      "codechefUserId",
+      "hasQualifiedCpCompetitions",
+      "cpCompetitions",
+    ],
+    8: ["linkedin", "github", "awards"],
   };
 
   const initialData: Partial<SupabaseVettingData> =
@@ -92,30 +146,28 @@ export default function VettingForm({
   // console.log("Vetting REsponse rvd in vettingForm: ", initialData);
 
   const calculteStartingStep = () => {
-    if (!initialData) return 0;
-    const filledFields = Object.keys(initialData).filter((key) => {
-      const value = initialData[key as keyof SupabaseVettingData];
-      return (
-        value !== undefined &&
-        value !== null &&
-        value !== "" &&
-        (Array.isArray(value) ? value.length > 0 : true)
-      );
-    });
-    console.log(
-      filledFields,
-      filledFields.map((k) => initialData[k as keyof SupabaseVettingData])
-    );
-    if (filledFields.length >= 8) return 2; // Most fields filled
-    if (filledFields.length >= 1) return 1; // Some fields filled
-    return 0; // No fields filled
+    if (!initialData || Object.keys(initialData).length === 0) return 0;
+
+    // Check each step's fields to find the first incomplete step
+    for (let s = 0; s < Object.keys(stepFields).length; s++) {
+      const fields = stepFields[s];
+      const allFilled = fields.every((field) => {
+        const value = initialData[field as keyof SupabaseVettingData];
+        if (value === undefined || value === null || value === "") return false;
+        if (Array.isArray(value) && value.length === 0) return false;
+        return true;
+      });
+      if (!allFilled) return s;
+    }
+    // All steps filled — return last step
+    return Object.keys(stepFields).length - 1;
   };
 
-  // useEffect(() => {
-  //   if (initialData && setStep) {
-  //     setStep(calculteStartingStep());
-  //   }
-  // }, [initialData]);
+  useEffect(() => {
+    if (initialData && setStep) {
+      setStep(calculteStartingStep());
+    }
+  }, []);
 
   const form = useForm({
     resolver: zodResolver(formSchema),
@@ -125,33 +177,43 @@ export default function VettingForm({
       category: initialData?.category || "",
       name: initialData?.name || "",
       email: initialData?.email || email,
+      phone: initialData?.phone || "",            
+      collegeEmail: initialData?.collegeEmail || "", 
+      degree: initialData?.degree || "",          
+      branch: initialData?.branch || "",           
       college: initialData?.college || "",
       year: initialData?.year || "",
       linkedin: initialData?.linkedin || "",
       github: initialData?.github || "",
-      location: initialData?.location || "",
-      awards: initialData?.awards || "",
+      awards: (initialData?.awards || []) as any[],
       dob: initialData?.dob ? new Date(initialData.dob) : new Date(),
       cgpa:
         initialData?.cgpa !== undefined && initialData?.cgpa !== null
           ? String(Number(initialData.cgpa).toFixed(2))
           : "",
-      skills: initialData?.skills || [],
+      skills: (initialData?.skills || []) as { skill: string; proficiency: "Beginner" | "Intermediate" | "Advanced" | "Expert"}[],
+      projects: (initialData?.projects || []) as any[],
+      experiences: (initialData?.experiences || []) as any[],
+      hackathons: (initialData?.hackathons || []) as any[],
+      openSource: (initialData as any)?.openSource || [] as any[],
+      hasPublishedResearch: (initialData as any)?.hasPublishedResearch || "",
+      researchPapers: (initialData as any)?.researchPapers || [] as any[],
+      codeforcesRating: (initialData as any)?.codeforcesRating || "",
+      codeforcesUserId: (initialData as any)?.codeforcesUserId || "",
+      codechefRating: (initialData as any)?.codechefRating || "",
+      codechefUserId: (initialData as any)?.codechefUserId || "",
+      hasQualifiedCpCompetitions: (initialData as any)?.hasQualifiedCpCompetitions || "",
+      cpCompetitions: (initialData as any)?.cpCompetitions || [] as any[],
       resume: initialData?.resume || "",
       transcript: initialData?.transcript || "",
       studentId: initialData?.studentId || "",
     },
   });
 
-  const next = async () => {
-    setSubmitting(true);
-
-    const fieldsToValidate = stepFields[step];
-    const isValid = await form.trigger(fieldsToValidate);
-
-    if (isValid) {
+  // Save current form data to backend (no validation required)
+  const saveFormData = useCallback(async () => {
+    try {
       const formData = form.getValues();
-      console.log("form data forntend: ", formData);
       const res = await fetch("/api/application/save", {
         method: "POST",
         headers: {
@@ -160,19 +222,51 @@ export default function VettingForm({
         },
         body: JSON.stringify(formData),
       });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, [form, jwtToken]);
 
-      const data = await res.json();
-      if (res.ok) {
+  // Auto-save on page refresh or tab close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const formData = form.getValues();
+      const blob = new Blob([JSON.stringify(formData)], { type: "application/json" });
+      navigator.sendBeacon(
+        `/api/application/save?beacon=true&token=${encodeURIComponent(jwtToken)}`,
+        blob
+      );
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [form, jwtToken]);
+
+  const next = async () => {
+    setSubmitting(true);
+
+    const fieldsToValidate = stepFields[step];
+    const isValid = await form.trigger(fieldsToValidate);
+
+    // Always save current data, even if validation fails
+    const saved = await saveFormData();
+
+    if (isValid) {
+      if (saved) {
         toast.success("Vetting data saved successfully");
         console.log("Vetting data saved successfully");
       } else {
         toast.error("Failed to save vetting data.");
-        console.error("error saving vetting data:", data.error);
       }
       if (step < steps.length - 1) {
         setStep(step + 1);
       }
     } else {
+      if (saved) {
+        toast.info("Progress saved. Please fix the errors to continue.");
+      }
+      console.log("Validation Errors", form.formState.errors);
       toast.error("Please fix the errors in the form.");
       form.setError("root", { message: "Please fix the errors above." });
     }
@@ -220,7 +314,7 @@ export default function VettingForm({
           toast.error("Please fix the errors in the form.");
           console.log("Form validation errors:", errors);
         })}
-        className="space-y-6 font-sans"
+        className="space-y-6 font-ovo"
       >
         <AnimatePresence mode="wait">
           {step === 0 && (
@@ -244,19 +338,28 @@ export default function VettingForm({
               exit="exit"
               className="flex flex-col gap-5"
             >
-              <NameInput form={form} />
-              <EmailInput form={form} />
+              <NameInput form={form} /> 
+              <EmailInput form={form} /> 
               <DobInput form={form} />
-              <CgpaInput form={form} />
+              <PhoneInput form={form} />
               <CollegeInput form={form} />
+              <CollegeEmailInput form={form} />
+              <DegreeInput form={form} />
+              <BranchInput form={form} />
               <CollegeYearInput form={form} />
-              <LocationInput form={form} />
+              <CgpaInput form={form} />              
+              <UploadFileInput
+                title="Resume"
+                form={form}
+                email={email}
+                name={"resume"}
+                jwtToken={jwtToken}
+              />
               <UploadFileInput
                 title="Transcript"
                 form={form}
                 email={email}
                 name={"transcript"}
-                // preloadedFile={initialData?.preloadedFiles?.transcript}
                 jwtToken={jwtToken}
               />
               <UploadFileInput
@@ -264,7 +367,6 @@ export default function VettingForm({
                 form={form}
                 email={email}
                 name={"studentId"}
-                // preloadedFile={initialData?.preloadedFiles?.studentId}
                 jwtToken={jwtToken}
               />
             </motion.div>
@@ -277,25 +379,88 @@ export default function VettingForm({
               initial="initial"
               animate="animate"
               exit="exit"
+              className="flex flex-col gap-5"
+            >
+              <SkillsProficiencyInput form={form} />
+            </motion.div>
+          )}
+
+          {step === 3 && (
+            <motion.div
+              key="step-3"
+              variants={stepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col gap-5"
+            >
+              <ProjectsInput form={form} />
+            </motion.div>
+          )}
+
+          {step === 4 && (
+            <motion.div
+              key="step-4"
+              variants={stepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col gap-5"
+            >
+              <ExperienceInput form={form} />
+            </motion.div>
+          )}
+
+          {step === 5 && (
+            <motion.div
+              key="step-5"
+              variants={stepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col gap-5"
+            >
+              <HackathonInput form={form} />
+            </motion.div>
+          )}
+
+          {step === 6 && (
+            <motion.div
+              key="step-6"
+              variants={stepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col gap-5"
+            >
+              <OpenSourceInput form={form} />
+            </motion.div>
+          )}
+
+          {step === 7 && (
+            <motion.div
+              key="step-7"
+              variants={stepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col gap-5"
+            >
+              <ResearchCompetitiveInput form={form} />
+            </motion.div>
+          )}
+
+          {step === 8 && (
+            <motion.div
+              key="step-8"
+              variants={stepVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
               className="flex flex-col gap-3"
             >
-              <UploadFileInput
-                title="Resume"
-                form={form}
-                email={email}
-                name={"resume"}
-                // preloadedFile={initialData?.preloadedFiles?.resume}
-                jwtToken={jwtToken}
-              />
               <LinksInput form={form} />
-              <SkillsInput
-                form={form}
-                name="skills"
-                label="Technical Skills"
-                placeholder="Choose your skills..."
-                className="mb-4 font-sans"
-              />
-              <AwardsInput form={form} />
+              <AwardsInput form={form} email={email} jwtToken={jwtToken} />
             </motion.div>
           )}
 

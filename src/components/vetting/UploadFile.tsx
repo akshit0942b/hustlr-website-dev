@@ -203,6 +203,17 @@ export default function UploadFileInput({
     document.getElementById(`${name}-upload`)?.click();
   };
 
+const getDescription = () => {
+    if (name === "transcript") {
+      return "Please upload an unofficial screenshot of your transcript so we can verify your grades.";
+    }
+    if (name === "studentId") {
+      return "Please upload a picture of your college Student ID so we can verify your graduation date.";
+    }
+    // Default fallback
+    return `Please upload a picture of your ${title} for verification.`;
+  };
+
   return (
     <FormField
       control={form.control}
@@ -213,8 +224,7 @@ export default function UploadFileInput({
             {title}
           </FormLabel>
           <FormDescription className="text-teal-700 font-semibold text-sm">
-            Please upload a picture of your college {title} so we can verify
-            your graduation date.
+            {getDescription()}
           </FormDescription>
           <FormControl>
             <div className="">
@@ -250,12 +260,12 @@ export default function UploadFileInput({
                             rel="noopener noreferrer"
                             className="underline hover:text-green-900"
                           >
-                            {selectedFile.name}
+                            {title}.{selectedFile.name.split(".").pop()}
                           </a>
                         </p>
                       ) : (
                         <p className="text-sm font-medium text-green-700">
-                          {selectedFile.name}
+                          {title}.{selectedFile.name.split(".").pop()}
                         </p>
                       )}
                       <p className="text-xs text-green-600">
@@ -295,7 +305,7 @@ export default function UploadFileInput({
             </div>
           </FormControl>
           <FormDescription className=" font-medium">
-            Upload a screenshot or PDF of your {name} (max 5MB)
+            Upload a screenshot or PDF of your {title} (max 5MB)
           </FormDescription>
           <FormMessage />
         </FormItem>

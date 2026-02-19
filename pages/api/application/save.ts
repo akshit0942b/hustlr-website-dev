@@ -7,6 +7,7 @@ import {
   prepareVettingData,
   updateVettingData,
 } from "@/src/lib/vettingUtils";
+import { verifyToken } from "@/src/lib/jwt";
 
 export default async function handler(
   req: NextApiRequest,
@@ -16,7 +17,17 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const jwtEmail = extractEmailFromAuthHeader(req);
+  // Support beacon requests (token passed as query param since beacon can't set headers)
+  let jwtEmail = extractEmailFromAuthHeader(req);
+  if (!jwtEmail && req.query.beacon === "true" && req.query.token) {
+    try {
+      const payload = verifyToken(req.query.token as string);
+      jwtEmail = typeof payload === "string" ? null : payload.email;
+    } catch {
+      jwtEmail = null;
+    }
+  }
+
   if (!jwtEmail) {
     return res.status(401).json({ error: "Invalid or missing token" });
   }

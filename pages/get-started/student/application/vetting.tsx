@@ -15,18 +15,41 @@ import VettingDataDisplay from "@/src/components/vetting/VettingDetails";
 import Link from "next/link";
 
 const steps = [
-  { name: "Category Selection", desc: "Tell us what you do best" },
+  {
+    name: "Category Selection",
+    desc: "What do you do best? Your choice decides the type of projects you will be shown on Hustlr. You can only choose ONE category",
+  },
   {
     name: "Tell us about yourself",
-    desc: "Share your background and education",
+    desc: "We use this to verify your student status and understand your academic background",
   },
   {
-    name: "Experience and Awards",
-    desc: "We use this to learn more about your projects and accolades",
+    name: "Skills & Proficiency",
+    desc: "The following questions help us better understand your skillset",
   },
   {
-    name: "Application Recieved",
-    desc: "Now the Real Wait Begins.",
+    name: "Projects",
+    desc: "Showcase your best work and experience",
+  },
+  {
+    name: "Experience",
+    desc: "Tell us about your professional and practical experience",
+  },
+  {
+    name: "Hackathons",
+    desc: "Showcase hackathons you've participated in and your achievements",
+  },
+  {
+    name: "Open Source",
+    desc: "Tell us about your open source contributions and impact",
+  },
+  {
+    name: "Research & Competitive Programming",
+    desc: "Share your published research and competitive programming achievements",
+  },
+  {
+    name: "Awards and Documents",
+    desc: "We use this to learn more about your accolades and verify your documents",
   },
 ];
 export const getServerSideProps: GetServerSideProps = async ({ req }) => {

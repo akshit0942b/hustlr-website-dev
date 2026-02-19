@@ -58,7 +58,17 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden", className)}
+    className={cn("max-h-[300px] overflow-y-auto overflow-x-hidden overscroll-contain", className)}
+    onWheel={(e) => {
+      e.stopPropagation();
+      const el = e.currentTarget;
+      if (
+        (e.deltaY > 0 && el.scrollTop + el.clientHeight < el.scrollHeight) ||
+        (e.deltaY < 0 && el.scrollTop > 0)
+      ) {
+        el.scrollTop += e.deltaY;
+      }
+    }}
     {...props}
   />
 ));
