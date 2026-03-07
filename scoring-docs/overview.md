@@ -22,7 +22,7 @@ A strong open-source contributor with good internships can score just as high as
 | 8 | Skills | 10% | 10 | Rule-based | Form data |
 | 9 | CGPA | 10% | 10 | Rule-based | Form data |
 
-**Total weight**: 185% (or 170% if research field doesn't match category) → scaled to 100%.
+**Total weight**: 180% (or 165% if research field doesn't match category) → scaled to 100%.
 
 ---
 
@@ -30,13 +30,13 @@ A strong open-source contributor with good internships can score just as high as
 
 Each category produces a **normalized score from 0 to 1** (raw points / max raw points).
 
-The denominator is **always 185%** (or 170% if research doesn't match). This is the total possible weight across all categories. Every student is measured against the same denominator regardless of how many categories they filled in.
+The denominator is **always 180%** (or 165% if research doesn't match). This is the total possible weight across all categories. Every student is measured against the same denominator regardless of how many categories they filled in.
 
 ```
 Final Score = Σ (category_normalized_score × category_weight) / total_weight × 100
 ```
 
-Because the total weight is 185% (more than 100%), a student doesn't need to be strong in every category to score well. Someone who aces internships (30%), projects (25%), and open source (35%) — that's 90% out of 185% — can score ~49% even with zeroes everywhere else. That's by design.
+Because the total weight is 180% (more than 100%), a student doesn't need to be strong in every category to score well. Someone who aces internships (30%), projects (25%), and open source (35%) — that's 90% out of 180% — can score 50% even with zeroes everywhere else. That's by design.
 
 **Practical score ranges**:
 - 60%+ = Exceptional (strong in 4+ categories)
@@ -54,7 +54,7 @@ Because the total weight is 185% (more than 100%), a student doesn't need to be 
 - Everything else: 0
 
 Weighted sum = 92.3
-Final score = 92.3 / 185 × 100 = **49.9%** (Strong candidate)
+Final score = 92.3 / 180 × 100 = **51.3%** (Strong candidate)
 
 ---
 

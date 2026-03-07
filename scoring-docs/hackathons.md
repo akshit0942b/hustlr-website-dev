@@ -99,8 +99,17 @@ Score this hackathon on these 4 dimensions. Return ONLY a JSON object:
   "prestige": { "score": <0-3>, "reasoning": "<1 sentence>" },
   "project_quality": { "score": <0-3>, "reasoning": "<1 sentence>" },
   "ownership": { "score": <0-1, can be decimal>, "reasoning": "<1 sentence>" },
-  "total": <sum>
+  "total": <sum>,
+  "red_flags": ["<any concerns>"],
+  "verification_confidence": "<high/medium/low>"
 }
+
+Red flags to check:
+- Claims winner but no public proof
+- GitHub repo created after hackathon dates
+- Devpost shows "Submitted" not "Winner"
+- Vague descriptions without specifics
+- Team size = 1 but claims "team lead"
 ```
 
 ---

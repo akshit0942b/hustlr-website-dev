@@ -69,6 +69,6 @@ If `hasPublishedResearch === "Yes"` but no papers listed → 2 points (researche
 
 ## Implementation Notes
 
-- The form schema needs `"B*"` added to the research paper rank enum (currently missing)
+- `"B*"` has been added to the form schema research paper rank enum
 - Field matching between paper titles/venues and freelancing categories can be done with keyword lists initially, upgraded to LLM classification later if needed
 - Students are told to only mention research if the field matches their freelancing category (disclaimer in form)
