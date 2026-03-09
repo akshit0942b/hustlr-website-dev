@@ -15,9 +15,9 @@ import Link from "next/link";
 import { toast } from "sonner";
 
 const steps = [
- { 
-    name: "Category Selection", 
-    desc: "What do you do best? Your choice decides the type of projects you will be shown on Hustlr. You can only choose ONE category" 
+  {
+    name: "Category Selection",
+    desc: "What do you do best? Your choice decides the type of projects you will be shown on Hustlr. You can only choose ONE category"
   },
   {
     name: "Tell us about yourself",
@@ -146,20 +146,19 @@ export default function Vetting({
               className="mb-6"
             />
             {alreadyCompleted ? (
-              <div className="p-6 bg-green-50 rounded-lg text-green-800 font-sans font-medium text-xl">
+              <div className="py-6 rounded-lg text-black font-medium text-xl">
                 <p className="mb-5">
-                  <span className="block mb-2">
+                  <span className="block mb-2 font-heading text-2xl font-bold">
                     Hey{" "}
                     {vettingProgressResponse?.success
                       ? vettingProgressResponse.data.name
                       : email}
                     ,
                   </span>
-                  🎉 Your application has already been completed.
                 </p>
                 <Link
                   href={`/get-started/student/application`}
-                  className="self-start font-sans font-medium text-sm px-3 py-2 text-black bg-white border border-gray-700/40 hover:bg-gray-500/20 transition-colors rounded flex items-center justify-center gap-2 mb-4"
+                  className="self-start font-heading font-medium text-sm px-3 py-2 text-black bg-white border border-gray-700/40 hover:bg-gray-500/20 transition-colors rounded flex items-center justify-center gap-2 mb-4"
                 >
                   <ArrowLeft className="size-5" />
                   Back to Applications
@@ -172,7 +171,7 @@ export default function Vetting({
                 </Link>
                 <br />
 
-                <div className="bg-white p-3 rounded pl-2 md:pl-5 !containertext-lg">
+                <div className="bg-white p-3 rounded pl-2 md:pl-5 text-black text-lg">
                   <VettingDataDisplay
                     jwtToken={token}
                     // to remove these fields from rendering
@@ -184,6 +183,8 @@ export default function Vetting({
                       ).filter(
                         ([key]) =>
                           ![
+                            "_id",
+                            "id",
                             "isComplete",
                             "isUnderReview",
                             "isAccepted",
