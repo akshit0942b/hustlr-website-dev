@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { FormEvent, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import Nav from "@/src/components/Nav";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +28,10 @@ const PROJECT_CATEGORIES = [
 ];
 
 const LEVEL_OPTIONS: SkillLevel[] = ["Beginner", "Intermediate", "Advanced"];
+const BUDGET_MIN = 0;
+const BUDGET_MAX = 80000;
+const BUDGET_STEP = 500;
+const PREVIEW_DELAY_MS = 1800;
 
 export default function ClientJobPostPage() {
   const [view, setView] = useState<"form" | "loading" | "preview">("form");
@@ -42,6 +46,39 @@ export default function ClientJobPostPage() {
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const previewTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewTimerRef.current !== null) {
+        window.clearTimeout(previewTimerRef.current);
+      }
+    };
+  }, []);
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goToStepOne() {
+    setView("form");
+    setStep(1);
+    setIsSubmitting(false);
+    scrollToTop();
+  }
+
+  function goToStepTwo() {
+    setView("form");
+    setStep(2);
+    setIsSubmitting(false);
+    scrollToTop();
+  }
+
+  function onBackToStepOne(e: MouseEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    goToStepOne();
+  }
 
   function addSkill() {
     const normalized = skillInput.trim();
@@ -101,7 +138,7 @@ export default function ClientJobPostPage() {
     return null;
   }
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     if (step === 1) {
@@ -111,7 +148,7 @@ export default function ClientJobPostPage() {
         return;
       }
 
-      setStep(2);
+      goToStepTwo();
       return;
     }
 
@@ -124,21 +161,30 @@ export default function ClientJobPostPage() {
     setIsSubmitting(true);
     setView("loading");
 
-    window.setTimeout(() => {
+    if (previewTimerRef.current !== null) {
+      window.clearTimeout(previewTimerRef.current);
+    }
+
+    previewTimerRef.current = window.setTimeout(() => {
       setView("preview");
       setIsSubmitting(false);
       toast.success("Project preview generated.");
-    }, 1800);
+      previewTimerRef.current = null;
+    }, PREVIEW_DELAY_MS);
   }
 
-  const skillTags = skills.slice(0, 3);
-  const deliverableItems = deliverables
-    .split("\n")
-    .map((item) => item.replace(/^[-*•]\s*/, "").trim())
-    .filter(Boolean);
+  const skillTags = useMemo(() => skills.slice(0, 3), [skills]);
 
-  const responsibilityItems = deliverableItems.slice(0, 3);
-  const formattedBudget = new Intl.NumberFormat("en-IN").format(budget);
+  const deliverableItems = useMemo(
+    () =>
+      deliverables
+        .split("\n")
+        .map((item) => item.replace(/^[-*•]\s*/, "").trim())
+        .filter(Boolean),
+    [deliverables],
+  );
+
+  const formattedBudget = useMemo(() => new Intl.NumberFormat("en-IN").format(budget), [budget]);
 
   return (
     <>
@@ -214,15 +260,6 @@ export default function ClientJobPostPage() {
                   </section>
 
                   <section>
-                    <h3 className="font-ovo text-3xl text-black">Responsibilities</h3>
-                    <ul className="mt-2 space-y-1 text-black/80">
-                      {(responsibilityItems.length ? responsibilityItems : ["Collaborate with the client", "Deliver quality implementation", "Share progress updates"]).map((item) => (
-                        <li key={item}>• {item}</li>
-                      ))}
-                    </ul>
-                  </section>
-
-                  <section>
                     <h3 className="font-ovo text-3xl text-black">Deliverables</h3>
                     <ul className="mt-2 space-y-1 text-black/80">
                       {(deliverableItems.length ? deliverableItems : ["Final project output", "Clean codebase", "Deployment notes"]).map((item) => (
@@ -244,9 +281,7 @@ export default function ClientJobPostPage() {
                 <Button
                   type="button"
                   onClick={() => {
-                    setView("form");
-                    setStep(1);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    goToStepOne();
                   }}
                   className="h-10 rounded-lg bg-[#a9a9a9] text-sm font-semibold text-white hover:bg-[#969696]"
                 >
@@ -452,9 +487,9 @@ export default function ClientJobPostPage() {
 
                           <input
                             type="range"
-                            min={0}
-                            max={80000}
-                            step={500}
+                            min={BUDGET_MIN}
+                            max={BUDGET_MAX}
+                            step={BUDGET_STEP}
                             value={budget}
                             onChange={(e) => setBudget(Number(e.target.value))}
                             className="mt-1 h-2 w-full cursor-pointer accent-black"
@@ -485,14 +520,7 @@ export default function ClientJobPostPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setView("form");
-                          setStep(1);
-                          setIsSubmitting(false);
-                          window.scrollTo({ top: 0, behavior: "smooth" });
-                        }}
+                        onClick={onBackToStepOne}
                         className="h-10 rounded-lg border border-black/20 px-6 text-sm text-black hover:bg-black/5"
                       >
                         Back
