@@ -36,6 +36,7 @@ const COUNTRY_OPTIONS = ["India", "United States", "United Kingdom", "Singapore"
 const LOADER_SEGMENTS = Array.from({ length: 12 }, (_, index) => index);
 
 const URL_REGEX = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/.*)?$/i;
+const CLIENT_PROFILE_STORAGE_KEY = "hustlr.client.profile";
 
 export default function ClientOnboardingPage() {
   const router = useRouter();
@@ -78,6 +79,20 @@ export default function ClientOnboardingPage() {
       toast.error(validationError);
       return;
     }
+
+    window.localStorage.setItem(
+      CLIENT_PROFILE_STORAGE_KEY,
+      JSON.stringify({
+        companyName: companyName.trim(),
+        website: website.trim(),
+        linkedin: linkedin.trim(),
+        industry,
+        companySize,
+        country,
+        description: description.trim(),
+        studentWorkReason: studentWorkReason.trim(),
+      }),
+    );
 
     setViewState("loading");
     await new Promise((resolve) => setTimeout(resolve, 3000));
