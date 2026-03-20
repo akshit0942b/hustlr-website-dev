@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, X } from "lucide-react";
+import { Loader, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 type SkillLevel = "Beginner" | "Intermediate" | "Advanced";
@@ -30,6 +30,7 @@ const PROJECT_CATEGORIES = [
 const LEVEL_OPTIONS: SkillLevel[] = ["Beginner", "Intermediate", "Advanced"];
 
 export default function ClientJobPostPage() {
+  const [view, setView] = useState<"form" | "loading" | "preview">("form");
   const [step, setStep] = useState<1 | 2>(1);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -120,12 +121,22 @@ export default function ClientJobPostPage() {
     }
 
     setIsSubmitting(true);
+    setView("loading");
 
-    await new Promise((resolve) => setTimeout(resolve, 900));
-
-    toast.success("Project draft created successfully. Preview is ready.");
-    setIsSubmitting(false);
+    window.setTimeout(() => {
+      setView("preview");
+      setIsSubmitting(false);
+      toast.success("Project preview generated.");
+    }, 1800);
   }
+
+  const skillTags = skills.slice(0, 3);
+  const deliverableItems = deliverables
+    .split("\n")
+    .map((item) => item.replace(/^[-*•]\s*/, "").trim())
+    .filter(Boolean);
+
+  const responsibilityItems = deliverableItems.slice(0, 3);
 
   return (
     <>
@@ -136,6 +147,114 @@ export default function ClientJobPostPage() {
       <Nav />
 
       <main className="min-h-screen bg-[#f4f4f4] pt-16 md:pt-20">
+        {view === "loading" && (
+          <section className="mx-auto flex min-h-[70vh] w-full max-w-6xl items-center justify-center px-6 py-10 sm:px-10 md:px-14 lg:px-20">
+            <div className="max-w-[760px] text-center font-ovo text-black">
+              <h2 className="text-3xl text-black/90 sm:text-4xl">Running our AI Job Post Helper..</h2>
+              <div className="mt-8 flex flex-col items-center gap-2">
+                <Loader className="h-12 w-12 animate-spin text-black/70" />
+                <p className="text-[11px] font-sans uppercase tracking-wide text-black/60">Loading...</p>
+              </div>
+              <p className="mx-auto mt-8 max-w-[680px] font-sans text-lg text-black/75 sm:text-2xl">
+                We&apos;re formatting your project description so students can understand it clearly.
+              </p>
+            </div>
+          </section>
+        )}
+
+        {view === "preview" && (
+          <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-10 md:px-14 lg:px-20">
+            <h1 className="font-serif text-5xl font-normal tracking-tight text-black/90">Job Post Preview</h1>
+            <p className="mt-3 text-[1.2rem] font-semibold text-[#58b7ba]">
+              This is how your project will appear to students.
+            </p>
+
+            <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_220px]">
+              <article className="mx-auto w-full max-w-[700px] rounded-[10px] bg-[#e9e9e9] p-8 font-ovo text-black">
+                <h2 className="text-center text-5xl text-black/90">{title || "Untitled Project"}</h2>
+
+                <div className="mt-8 grid grid-cols-2 gap-6 text-center">
+                  <div>
+                    <p className="text-6xl leading-none">₹15,000</p>
+                    <p className="text-5xl leading-tight">fixed price</p>
+                  </div>
+                  <div>
+                    <p className="text-6xl leading-none">{timelineEstimate || "4 weeks"}</p>
+                    <p className="text-5xl leading-tight">duration</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-wrap justify-center gap-2">
+                  {skillTags.map((skill) => (
+                    <span
+                      key={skill.name}
+                      className="rounded-md bg-[#8ecfd5] px-4 py-1 text-xs font-sans font-semibold text-white"
+                    >
+                      {skill.name}
+                    </span>
+                  ))}
+                  {!skillTags.length && (
+                    <span className="rounded-md bg-[#8ecfd5] px-4 py-1 text-xs font-sans font-semibold text-white">
+                      {category || "Project"}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mx-auto mt-6 flex w-[220px] overflow-hidden rounded-full bg-[#d6d6d6] font-sans text-xs font-semibold text-white">
+                  <span className="w-1/2 bg-[#9a9a9a] px-4 py-1 text-center">Details</span>
+                  <span className="w-1/2 px-4 py-1 text-center">Client</span>
+                </div>
+
+                <div className="mt-8 space-y-5 font-sans text-sm text-black/90">
+                  <section>
+                    <h3 className="font-ovo text-3xl text-black">Description</h3>
+                    <p className="mt-2 leading-relaxed text-black/80">{description}</p>
+                  </section>
+
+                  <section>
+                    <h3 className="font-ovo text-3xl text-black">Responsibilities</h3>
+                    <ul className="mt-2 space-y-1 text-black/80">
+                      {(responsibilityItems.length ? responsibilityItems : ["Collaborate with the client", "Deliver quality implementation", "Share progress updates"]).map((item) => (
+                        <li key={item}>• {item}</li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  <section>
+                    <h3 className="font-ovo text-3xl text-black">Deliverables</h3>
+                    <ul className="mt-2 space-y-1 text-black/80">
+                      {(deliverableItems.length ? deliverableItems : ["Final project output", "Clean codebase", "Deployment notes"]).map((item) => (
+                        <li key={item}>• {item}</li>
+                      ))}
+                    </ul>
+                  </section>
+                </div>
+              </article>
+
+              <aside className="flex h-fit flex-col gap-3 lg:pt-1">
+                <Button
+                  type="button"
+                  onClick={() => toast.success("Project posted successfully.")}
+                  className="h-10 rounded-lg bg-[#a9c165] text-sm font-semibold text-white hover:bg-[#95af57]"
+                >
+                  Post Project
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setView("form");
+                    setStep(2);
+                  }}
+                  className="h-10 rounded-lg bg-[#a9a9a9] text-sm font-semibold text-white hover:bg-[#969696]"
+                >
+                  Edit Project
+                </Button>
+              </aside>
+            </div>
+          </section>
+        )}
+
+        {view === "form" && (
         <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-10 md:px-14 lg:px-20">
           <div
             className={`grid grid-cols-1 gap-10 ${
@@ -337,6 +456,7 @@ export default function ClientJobPostPage() {
             )}
           </div>
         </section>
+        )}
       </main>
     </>
   );
