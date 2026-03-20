@@ -5,6 +5,14 @@ import Nav from "@/src/components/Nav";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Select,
   SelectContent,
@@ -12,8 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader, MapPin, Plus, X } from "lucide-react";
+import { Check, ChevronsUpDown, Loader, MapPin, Plus, X } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/src/lib/utils";
 
 type SkillLevel = "Required" | "Good to have";
 
@@ -27,6 +36,258 @@ const PROJECT_CATEGORIES = [
   "Mobile Development",
   "AI/ML",
 ];
+
+const SKILLS_BY_CATEGORY: Record<string, string[]> = {
+  "Web Development": [
+    "React",
+    "Next.js",
+    "Vue.js",
+    "Nuxt.js",
+    "Angular",
+    "Svelte",
+    "SvelteKit",
+    "Node.js",
+    "Express.js",
+    "NestJS",
+    "Django",
+    "Flask",
+    "FastAPI",
+    "Ruby on Rails",
+    "Spring Boot",
+    "ASP.NET",
+    "JavaScript",
+    "TypeScript",
+    "HTML",
+    "CSS",
+    "Python",
+    "Java",
+    "PHP",
+    "C#",
+    "Ruby",
+    "Go",
+    "Tailwind CSS",
+    "Bootstrap",
+    "Material UI",
+    "Styled Components",
+    "Sass / SCSS",
+    "CSS Modules",
+    "Redux",
+    "Zustand",
+    "Recoil",
+    "MobX",
+    "Context API",
+    "REST APIs",
+    "API Development",
+    "API Integration",
+    "GraphQL",
+    "WebSockets",
+    "Authentication",
+    "Authorization",
+    "JWT",
+    "OAuth",
+    "PostgreSQL",
+    "MySQL",
+    "SQLite",
+    "MongoDB",
+    "Firebase Firestore",
+    "Redis",
+    "Deployment",
+    "CI/CD",
+    "Docker",
+    "Kubernetes",
+    "AWS",
+    "Azure",
+    "Google Cloud",
+    "Vercel",
+    "Netlify",
+    "Heroku",
+    "Nginx",
+    "WordPress",
+    "Strapi",
+    "Contentful",
+    "Sanity",
+    "Shopify",
+    "Webflow",
+    "Socket.io",
+    "Realtime Applications",
+    "Push Notifications",
+  ],
+  "Mobile Development": [
+    "Android Development",
+    "iOS Development",
+    "Mobile Development",
+    "Flutter",
+    "React Native",
+    "Ionic",
+    "Kotlin",
+    "Swift",
+    "Xamarin",
+    "Unity",
+    "Expo",
+    "Flutter Widgets",
+    "React Navigation",
+    "Redux",
+    "Zustand",
+    "Dart",
+    "Objective-C",
+    "JavaScript",
+    "TypeScript",
+    "Java",
+    "C#",
+    "Rust",
+    "Android Studio",
+    "Jetpack Compose",
+    "XML Layouts",
+    "Room Database",
+    "LiveData",
+    "ViewModel",
+    "Xcode",
+    "UIKit",
+    "SwiftUI",
+    "Core Data",
+    "Auto Layout",
+    "Firebase",
+    "Supabase",
+    "Backend Development",
+    "REST APIs",
+    "API Integration",
+    "GraphQL",
+    "Authentication",
+    "Authorization",
+    "JWT",
+    "OAuth",
+    "Firebase Firestore",
+    "Realtime Database",
+    "SQLite",
+    "Room Database",
+    "MongoDB",
+    "PostgreSQL",
+    "MySQL",
+    "App Deployment",
+    "CI/CD",
+    "Fastlane",
+    "Google Play Store",
+    "App Store",
+    "TestFlight",
+    "Firebase App Distribution",
+    "Mobile Security",
+    "Data Encryption",
+    "Secure Storage",
+    "Biometric Authentication",
+    "Socket.io",
+    "Realtime Applications",
+    "Chat Systems",
+    "Live Updates",
+    "Push Notifications",
+    "In App Purchases",
+    "Payment Integration",
+    "Offline Storage",
+    "Realtime Sync",
+    "Geolocation",
+    "Maps Integration",
+    "Camera Integration",
+    "File Upload",
+    "Media Handling",
+  ],
+  "AI/ML": [
+    "Python",
+    "R",
+    "Julia",
+    "MATLAB",
+    "Machine Learning",
+    "Deep Learning",
+    "Data Science",
+    "Data Analysis",
+    "Artificial Intelligence",
+    "Natural Language Processing",
+    "Computer Vision",
+    "Time Series Analysis",
+    "Recommender Systems",
+    "Speech Recognition",
+    "Generative AI",
+    "Neural Networks",
+    "CNNs",
+    "RNNs",
+    "Transformers",
+    "Attention Mechanisms",
+    "Backpropagation",
+    "Pandas",
+    "NumPy",
+    "Matplotlib",
+    "Seaborn",
+    "Plotly",
+    "Regression",
+    "Logistic Regression",
+    "Decision Trees",
+    "Random Forest",
+    "XGBoost",
+    "Clustering",
+    "K-Means",
+    "Dimensionality Reduction",
+    "PCA",
+    "Model Evaluation",
+    "Cross Validation",
+    "Accuracy",
+    "Precision",
+    "Recall",
+    "F1 Score",
+    "ROC-AUC",
+    "Model Deployment",
+    "MLOps",
+    "Docker",
+    "Kubernetes",
+    "CI/CD",
+    "API Deployment",
+    "FastAPI",
+    "Flask for ML APIs",
+    "LLMs",
+    "Prompt Engineering",
+    "LangChain",
+    "RAG",
+    "Fine-tuning Models",
+    "Embeddings",
+    "Vector Databases",
+    "SQL",
+    "NoSQL",
+    "MongoDB",
+    "PostgreSQL",
+    "Scikit-learn",
+    "TensorFlow",
+    "PyTorch",
+    "Keras",
+    "LightGBM",
+    "Hugging Face Transformers",
+    "OpenCV",
+    "NLTK",
+    "spaCy",
+  ],
+};
+
+for (const category of Object.keys(SKILLS_BY_CATEGORY)) {
+  SKILLS_BY_CATEGORY[category] = [...new Set(SKILLS_BY_CATEGORY[category])];
+}
+
+function normalizeSkillText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function buildStartsWithFuzzyRegex(query: string) {
+  const normalized = normalizeSkillText(query);
+  if (!normalized) return null;
+  const pattern = normalized.split("").join(".*");
+  return new RegExp(`^${pattern}`, "i");
+}
+
+function doesSkillMatchQuery(skill: string, query: string) {
+  const normalizedSkill = normalizeSkillText(skill);
+  const normalizedQuery = normalizeSkillText(query);
+
+  if (!normalizedQuery) return true;
+  if (normalizedSkill.includes(normalizedQuery)) return true;
+
+  const startsWithFuzzyRegex = buildStartsWithFuzzyRegex(query);
+  return startsWithFuzzyRegex ? startsWithFuzzyRegex.test(normalizedSkill) : false;
+}
 
 const LEVEL_OPTIONS: SkillLevel[] = ["Required", "Good to have"];
 const BUDGET_MIN = 0;
@@ -68,7 +329,9 @@ export default function ClientJobPostPage() {
   const [timelineEstimate, setTimelineEstimate] = useState("");
   const [deliverables, setDeliverables] = useState("");
   const [budget, setBudget] = useState(20000);
-  const [skillInput, setSkillInput] = useState("");
+  const [selectedSkill, setSelectedSkill] = useState("");
+  const [skillSearchQuery, setSkillSearchQuery] = useState("");
+  const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false);
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [previewTab, setPreviewTab] = useState<"details" | "client">("details");
@@ -121,9 +384,9 @@ export default function ClientJobPostPage() {
   }
 
   function addSkill() {
-    const normalized = skillInput.trim();
+    const normalized = selectedSkill.trim();
     if (!normalized) {
-      toast.error("Please enter a skill name.");
+      toast.error("Please select a skill from the dropdown.");
       return;
     }
 
@@ -146,8 +409,25 @@ export default function ClientJobPostPage() {
     }
 
     setSkills((prev) => [...prev, { name: normalized, level: skillLevel }]);
-    setSkillInput("");
+    setSelectedSkill("");
+    setSkillSearchQuery("");
     setSkillLevel("");
+  }
+
+  function onCategoryChange(nextCategory: string) {
+    setCategory(nextCategory);
+    setSelectedSkill("");
+    setSkillSearchQuery("");
+    setIsSkillDropdownOpen(false);
+
+    const categorySkills = new Set(SKILLS_BY_CATEGORY[nextCategory] ?? []);
+    setSkills((prev) => {
+      const filtered = prev.filter((skill) => categorySkills.has(skill.name));
+      if (filtered.length !== prev.length) {
+        toast.info("Skills were reset to match the selected project category.");
+      }
+      return filtered;
+    });
   }
 
   function removeSkill(index: number) {
@@ -231,6 +511,16 @@ export default function ClientJobPostPage() {
   );
 
   const formattedBudget = useMemo(() => new Intl.NumberFormat("en-IN").format(budget), [budget]);
+
+  const availableSkillOptions = useMemo(
+    () => SKILLS_BY_CATEGORY[category] ?? [],
+    [category],
+  );
+
+  const filteredSkillOptions = useMemo(
+    () => availableSkillOptions.filter((skill) => doesSkillMatchQuery(skill, skillSearchQuery)),
+    [availableSkillOptions, skillSearchQuery],
+  );
 
   return (
     <>
@@ -422,7 +712,7 @@ export default function ClientJobPostPage() {
                         This helps us match your project with students who have expertise in this area.
                       </p>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <Select value={category} onValueChange={setCategory}>
+                        <Select value={category} onValueChange={onCategoryChange}>
                           <SelectTrigger className="h-9 w-full rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black sm:w-[180px]">
                             <SelectValue placeholder="project category" />
                           </SelectTrigger>
@@ -489,12 +779,53 @@ export default function ClientJobPostPage() {
                           >
                             <Plus className="h-4 w-4" />
                           </Button>
-                          <Input
-                            value={skillInput}
-                            onChange={(e) => setSkillInput(e.target.value)}
-                            placeholder="Add Skill"
-                            className="h-9 rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black"
-                          />
+                          <Popover open={isSkillDropdownOpen} onOpenChange={setIsSkillDropdownOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={isSkillDropdownOpen}
+                                className="h-9 w-full justify-between rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black hover:bg-[#e1e1e1]"
+                                disabled={!category}
+                              >
+                                <span className="truncate text-left">
+                                  {selectedSkill || (category ? "Search and select skill" : "Select category first")}
+                                </span>
+                                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-70" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[350px] border-black/20 p-0" align="start">
+                              <Command shouldFilter={false}>
+                                <CommandInput
+                                  value={skillSearchQuery}
+                                  onValueChange={setSkillSearchQuery}
+                                  placeholder="Search skill (e.g. Nod)"
+                                />
+                                <CommandList>
+                                  <CommandEmpty>No skills found for your search.</CommandEmpty>
+                                  {filteredSkillOptions.map((skill) => (
+                                    <CommandItem
+                                      key={skill}
+                                      value={skill}
+                                      onSelect={() => {
+                                        setSelectedSkill(skill);
+                                        setIsSkillDropdownOpen(false);
+                                      }}
+                                    >
+                                      <Check
+                                        className={cn(
+                                          "mr-2 h-4 w-4",
+                                          selectedSkill === skill ? "opacity-100" : "opacity-0",
+                                        )}
+                                      />
+                                      {skill}
+                                    </CommandItem>
+                                  ))}
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
                         </div>
 
                         <Select
