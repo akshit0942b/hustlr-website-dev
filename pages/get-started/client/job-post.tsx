@@ -1,5 +1,6 @@
 import Head from "next/head";
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import Nav from "@/src/components/Nav";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader, Plus, X } from "lucide-react";
+import { Loader, MapPin, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 type SkillLevel = "Required" | "Good to have";
@@ -33,8 +34,32 @@ const BUDGET_MAX = 80000;
 const BUDGET_STEP = 500;
 const PREVIEW_DELAY_MS = 1800;
 const MAX_SKILLS = 20;
+const CLIENT_PROFILE_STORAGE_KEY = "hustlr.client.profile";
+
+type ClientProfile = {
+  companyName: string;
+  website: string;
+  linkedin: string;
+  industry: string;
+  companySize: string;
+  country: string;
+  description: string;
+  studentWorkReason: string;
+};
+
+const DEFAULT_CLIENT_PROFILE: ClientProfile = {
+  companyName: "Your Company",
+  website: "",
+  linkedin: "",
+  industry: "Business",
+  companySize: "",
+  country: "India",
+  description: "No company description added yet.",
+  studentWorkReason: "No response added yet.",
+};
 
 export default function ClientJobPostPage() {
+  const router = useRouter();
   const [view, setView] = useState<"form" | "loading" | "preview">("form");
   const [step, setStep] = useState<1 | 2>(1);
   const [title, setTitle] = useState("");
@@ -46,6 +71,8 @@ export default function ClientJobPostPage() {
   const [skillInput, setSkillInput] = useState("");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [skills, setSkills] = useState<SkillItem[]>([]);
+  const [previewTab, setPreviewTab] = useState<"details" | "client">("details");
+  const [clientProfile, setClientProfile] = useState<ClientProfile>(DEFAULT_CLIENT_PROFILE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const previewTimerRef = useRef<number | null>(null);
 
@@ -55,6 +82,18 @@ export default function ClientJobPostPage() {
         window.clearTimeout(previewTimerRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const rawProfile = window.localStorage.getItem(CLIENT_PROFILE_STORAGE_KEY);
+    if (!rawProfile) return;
+
+    try {
+      const parsed = JSON.parse(rawProfile) as Partial<ClientProfile>;
+      setClientProfile((prev) => ({ ...prev, ...parsed }));
+    } catch {
+      // Keep defaults if parsing fails.
+    }
   }, []);
 
   function scrollToTop() {
@@ -165,6 +204,7 @@ export default function ClientJobPostPage() {
     }
 
     setIsSubmitting(true);
+    setPreviewTab("details");
     setView("loading");
 
     if (previewTimerRef.current !== null) {
@@ -255,31 +295,80 @@ export default function ClientJobPostPage() {
                 </div>
 
                 <div className="mx-auto mt-6 flex w-[220px] overflow-hidden rounded-full bg-[#d6d6d6] font-sans text-xs font-semibold text-white">
-                  <span className="w-1/2 bg-[#9a9a9a] px-4 py-1 text-center">Details</span>
-                  <span className="w-1/2 px-4 py-1 text-center">Client</span>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTab("details")}
+                    className={`w-1/2 px-4 py-1 text-center transition-colors ${
+                      previewTab === "details" ? "bg-[#9a9a9a]" : "bg-transparent"
+                    }`}
+                  >
+                    Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTab("client")}
+                    className={`w-1/2 px-4 py-1 text-center transition-colors ${
+                      previewTab === "client" ? "bg-[#9a9a9a]" : "bg-transparent"
+                    }`}
+                  >
+                    Client
+                  </button>
                 </div>
 
-                <div className="mt-8 space-y-5 font-sans text-sm text-black/90">
-                  <section>
-                    <h3 className="font-ovo text-3xl text-black">Description</h3>
-                    <p className="mt-2 leading-relaxed text-black/80">{description}</p>
-                  </section>
+                {previewTab === "details" ? (
+                  <div className="mt-8 space-y-5 font-sans text-sm text-black/90">
+                    <section>
+                      <h3 className="font-ovo text-3xl text-black">Description</h3>
+                      <p className="mt-2 leading-relaxed text-black/80">{description}</p>
+                    </section>
 
-                  <section>
-                    <h3 className="font-ovo text-3xl text-black">Deliverables</h3>
-                    <ul className="mt-2 space-y-1 text-black/80">
-                      {(deliverableItems.length ? deliverableItems : ["Final project output", "Clean codebase", "Deployment notes"]).map((item) => (
-                        <li key={item}>• {item}</li>
-                      ))}
-                    </ul>
-                  </section>
-                </div>
+                    <section>
+                      <h3 className="font-ovo text-3xl text-black">Deliverables</h3>
+                      <ul className="mt-2 space-y-1 text-black/80">
+                        {(deliverableItems.length ? deliverableItems : ["Final project output", "Clean codebase", "Deployment notes"]).map((item) => (
+                          <li key={item}>• {item}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  </div>
+                ) : (
+                  <div className="mt-8 space-y-5 font-sans text-sm text-black/90">
+                    <section className="text-center">
+                      <h3 className="font-ovo text-4xl text-black">{clientProfile.companyName || "Your Company"}</h3>
+                      <div className="mt-3 flex items-center justify-center gap-4 text-xs text-black/75">
+                        <span className="rounded-full bg-[#c8c8c8] px-3 py-1">
+                          {clientProfile.industry || "Business"}
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {clientProfile.country || "India"}
+                        </span>
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3 className="font-ovo text-3xl text-black">About Us</h3>
+                      <p className="mt-2 leading-relaxed text-black/80">
+                        {clientProfile.description || "No company description added yet."}
+                      </p>
+                    </section>
+
+                    <section>
+                      <h3 className="font-ovo text-3xl text-black">Why Work With Us?</h3>
+                      <p className="mt-2 whitespace-pre-line leading-relaxed text-black/80">
+                        {clientProfile.studentWorkReason || "No response added yet."}
+                      </p>
+                    </section>
+                  </div>
+                )}
               </article>
 
               <aside className="flex h-fit flex-col gap-3 lg:pt-1">
                 <Button
                   type="button"
-                  onClick={() => toast.success("Project posted successfully.")}
+                  onClick={() => {
+                    void router.push("/get-started/client/project-submitted");
+                  }}
                   className="h-10 rounded-lg bg-[#a9c165] text-sm font-semibold text-white hover:bg-[#95af57]"
                 >
                   Post Project
