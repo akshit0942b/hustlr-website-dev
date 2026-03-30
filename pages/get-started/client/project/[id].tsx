@@ -21,6 +21,7 @@ import {
 import { getClientEmailFromSSP } from "@/src/lib/clientAuthUtils";
 import { supabaseAdmin } from "@/src/lib/supabase-admin";
 import { GetServerSideProps } from "next";
+import { toast } from "sonner";
 
 /* ───────── Types ───────── */
 
@@ -153,14 +154,15 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
     .eq("client_email", clientEmail)
     .order("created_at", { ascending: false });
 
-  /* Fetch all students from vettingapplications ordered by final_score desc */
+  /* Fetch top 100 students from vettingapplications ordered by final_score desc */
   const { data: studentsRaw } = await supabaseAdmin
     .from("vettingapplications")
     .select(
       "name, email, college, year, category, skills, final_score, status, projects, experiences, linkedin, github, degree, branch, awards, hackathons"
     )
     .not("name", "is", null)
-    .order("final_score", { ascending: false, nullsFirst: false });
+    .order("final_score", { ascending: false, nullsFirst: false })
+    .limit(100);
 
   return {
     props: {
@@ -188,6 +190,10 @@ const CARD_SHADOW = "shadow-[-2px_4px_9px_rgba(0,0,0,0.40)]";
 
 function shortlistStorageKey(clientEmail: string, projectId: string) {
   return `client-shortlist:${clientEmail}:${projectId}`;
+}
+
+function starredStorageKey(clientEmail: string, projectId: string) {
+  return `client-starred:${clientEmail}:${projectId}`;
 }
 
 /* ───────── Component ───────── */
@@ -233,10 +239,39 @@ export default function ClientProjectPage({
     }
   }, [clientEmail, project.id]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(
+        starredStorageKey(clientEmail, project.id)
+      );
+      if (!raw) {
+        setStarredEmails(new Set());
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setStarredEmails(new Set(parsed.filter((v) => typeof v === "string")));
+      } else {
+        setStarredEmails(new Set());
+      }
+    } catch {
+      setStarredEmails(new Set());
+    }
+  }, [clientEmail, project.id]);
+
   const persistShortlistedEmails = (next: Set<string>) => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(
       shortlistStorageKey(clientEmail, project.id),
+      JSON.stringify(Array.from(next))
+    );
+  };
+
+  const persistStarredEmails = (next: Set<string>) => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      starredStorageKey(clientEmail, project.id),
       JSON.stringify(Array.from(next))
     );
   };
@@ -282,6 +317,7 @@ export default function ClientProjectPage({
       const next = new Set(prev);
       if (next.has(email)) next.delete(email);
       else next.add(email);
+      persistStarredEmails(next);
       return next;
     });
   };
@@ -961,7 +997,7 @@ export default function ClientProjectPage({
                 type="button"
                 onClick={() => {
                   if (shortlistedEmails.has(expandedStudent!.email)) {
-                    alert(`${expandedStudent?.name} is already shortlisted!`);
+                    toast.info(`${expandedStudent?.name} is already shortlisted.`);
                   } else {
                     setShowShortlistConfirm(true);
                   }
@@ -1005,7 +1041,7 @@ export default function ClientProjectPage({
                   setIsShortlisting(false);
                   setShowShortlistConfirm(false);
                   setExpandedStudent(null);
-                  alert(`Success! ${expandedStudent?.name} has been added to your shortlisted talent.`);
+                  toast.success(`${expandedStudent?.name} has been added to your shortlist.`);
                 }}
                 className={`flex items-center justify-center rounded-xl bg-gray-900 py-3 text-sm font-bold text-white transition-all ${isShortlisting ? 'opacity-70 cursor-wait' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-black'}`}
               >
