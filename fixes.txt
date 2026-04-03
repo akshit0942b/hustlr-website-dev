@@ -1,0 +1,7 @@
+1)earlier when you were clicking the edit button for teh project it was redirecting you to create a new project 
+2)now the  ai post builder is correctly any grammetical mistakes which are there and also 
+enhancing the way the sentence is framed
+3)for each project there is a view your job posting algorithm but when i click it for suppose a project A it 
+was showing me the details of the  project i ahve most recently created not project A 
+4)in skills match i comparing the skills client has posted and the skills candidate has 
+5)also for similar project for now i will compare the skills of each project to the skills of client side if for a partcuilar project matchign is greater than equal to 75 percent i will do yes otherwise no 
