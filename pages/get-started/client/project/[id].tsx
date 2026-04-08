@@ -1,6 +1,6 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import {
   Star,
   Settings,
@@ -185,119 +185,6 @@ function formatScore(score: number | null): string {
   return `${Math.round(score)}%`;
 }
 
-function normalizeSkillName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
-}
-
-function getProjectRequiredSkills(project: JobPost): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-
-  for (const skill of Array.isArray(project.skills) ? project.skills : []) {
-    const name = typeof skill?.name === "string" ? skill.name.trim() : "";
-    if (!name) continue;
-    const key = normalizeSkillName(name);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(name);
-  }
-
-  return out;
-}
-
-function getCandidateSkillNames(student: StudentRow): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-
-  const addSkill = (value: string | undefined | null) => {
-    const name = typeof value === "string" ? value.trim() : "";
-    if (!name) return;
-    const key = normalizeSkillName(name);
-    if (!key || seen.has(key)) return;
-    seen.add(key);
-    out.push(name);
-  };
-
-  for (const skill of Array.isArray(student.skills) ? student.skills : []) {
-    if (typeof skill === "string") {
-      addSkill(skill);
-    } else {
-      addSkill(skill?.skill);
-    }
-  }
-
-  for (const exp of Array.isArray(student.experiences) ? student.experiences : []) {
-    for (const skill of Array.isArray(exp.skills) ? exp.skills : []) {
-      addSkill(skill);
-    }
-  }
-
-  for (const proj of Array.isArray(student.projects) ? student.projects : []) {
-    for (const skill of Array.isArray(proj.techStack) ? proj.techStack : []) {
-      addSkill(skill);
-    }
-  }
-
-  for (const hack of Array.isArray(student.hackathons) ? student.hackathons : []) {
-    for (const skill of Array.isArray(hack.techStack) ? hack.techStack : []) {
-      addSkill(skill);
-    }
-  }
-
-  return out;
-}
-
-function getSkillMatch(student: StudentRow, requiredSkills: string[]) {
-  const requiredSet = new Set(requiredSkills.map((s) => normalizeSkillName(s)).filter(Boolean));
-  if (!requiredSet.size) {
-    return { matchedCount: 0, totalCount: 0, matchedSkills: [] as string[] };
-  }
-
-  const candidateSkills = getCandidateSkillNames(student);
-  const matchedSkills = candidateSkills.filter((skill) =>
-    requiredSet.has(normalizeSkillName(skill)),
-  );
-
-  return {
-    matchedCount: matchedSkills.length,
-    totalCount: requiredSet.size,
-    matchedSkills,
-  };
-}
-
-function hasSimilarProjectExperience(
-  student: StudentRow,
-  requiredSkills: string[],
-  thresholdPercent = 75,
-) {
-  const requiredSet = new Set(requiredSkills.map((s) => normalizeSkillName(s)).filter(Boolean));
-  if (!requiredSet.size) return false;
-
-  const projects = Array.isArray(student.projects) ? student.projects : [];
-  if (!projects.length) return false;
-
-  for (const proj of projects) {
-    const techStack = Array.isArray(proj.techStack) ? proj.techStack : [];
-    const projectSkillSet = new Set(
-      techStack.map((s) => normalizeSkillName(s)).filter(Boolean),
-    );
-
-    if (!projectSkillSet.size) continue;
-
-    let matched = 0;
-    for (const required of requiredSet) {
-      if (projectSkillSet.has(required)) matched += 1;
-    }
-
-    const matchPercent = (matched / requiredSet.size) * 100;
-    if (matchPercent >= thresholdPercent) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 /* Shadow — matches admin dashboard exactly */
 const CARD_SHADOW = "shadow-[-2px_4px_9px_rgba(0,0,0,0.40)]";
 
@@ -405,17 +292,32 @@ export default function ClientProjectPage({
     void router.prefetch(`/get-started/client/project/${project.id}/chat`);
   }, [router, project.id]);
 
+  const dismissExpandedStudent = useCallback(() => {
+    setExpandedStudent(null);
+    const q = router.query.student;
+    if (q !== undefined && q !== "" && !(Array.isArray(q) && q.length === 0)) {
+      void router.replace(`/get-started/client/project/${project.id}`, undefined, { shallow: true });
+    }
+  }, [router, project.id]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const raw = router.query.student;
+    const emailParam =
+      typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
+    if (!emailParam || typeof emailParam !== "string") return;
+    try {
+      const decoded = decodeURIComponent(emailParam);
+      const match = students.find(
+        (s) => s.email && s.email.toLowerCase() === decoded.toLowerCase(),
+      );
+      if (match) setExpandedStudent(match);
+    } catch {
+      // ignore malformed query
+    }
+  }, [router.isReady, router.query.student, students]);
+
   const projectName = project.title || "Project Name";
-  const requiredSkillNames = getProjectRequiredSkills(project);
-  const expandedCandidateSkills = expandedStudent
-    ? getCandidateSkillNames(expandedStudent)
-    : [];
-  const expandedSkillMatch = expandedStudent
-    ? getSkillMatch(expandedStudent, requiredSkillNames)
-    : null;
-  const expandedMatchedSkillSet = new Set(
-    (expandedSkillMatch?.matchedSkills || []).map((skill) => normalizeSkillName(skill)),
-  );
 
   /* Filter students by tab */
   const displayStudents =
@@ -459,8 +361,8 @@ export default function ClientProjectPage({
         />
       </Head>
 
-      <div className="min-h-screen bg-[#eaeaea] p-2 font-sans">
-        <div className="flex min-h-[calc(100vh-1rem)] gap-2">
+      <div className="min-h-screen min-w-0 bg-[#eaeaea] p-2 font-sans">
+        <div className="flex min-h-[calc(100vh-1rem)] min-w-0 gap-2">
         {/* ────────── Sidebar ────────── */}
         <aside className="flex w-[220px] shrink-0 flex-col justify-between rounded-2xl border border-gray-300 bg-white px-5 py-6">
           <div>
@@ -541,7 +443,7 @@ export default function ClientProjectPage({
                         `/get-started/client/project/${post.id}`
                       )
                     }
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] font-medium transition-colors ${
+                    className={`flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] font-medium transition-colors ${
                       isActive
                         ? "bg-gray-900 text-white hover:bg-gray-800"
                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
@@ -552,7 +454,7 @@ export default function ClientProjectPage({
                         isActive ? "text-gray-300" : "text-gray-400"
                       }`}
                     />
-                    <span className="truncate">
+                    <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
                       Project: {post.title || "Untitled"}
                     </span>
                   </button>
@@ -585,10 +487,10 @@ export default function ClientProjectPage({
         </aside>
 
         {/* ────────── Main Content ────────── */}
-        <main className="flex-1 overflow-y-auto rounded-2xl bg-[#eaeaea] px-8 py-6">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto rounded-2xl bg-[#eaeaea] px-8 py-6">
           {/* Top row — breadcrumb + View Job Posting */}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-gray-500">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="min-w-0 max-w-full flex-1 text-xs text-gray-500 break-words [overflow-wrap:anywhere]">
               <span
                 className="cursor-pointer hover:text-gray-700 transition-colors"
                 onClick={() =>
@@ -607,9 +509,9 @@ export default function ClientProjectPage({
             <button
               type="button"
               onClick={() =>
-                void router.push(`/get-started/client/job-post-review?id=${project.id}`)
+                void router.push("/get-started/client/job-post-review?view=readonly")
               }
-              className="rounded-xl bg-[#57B1B2] px-5 py-2 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#4a9a9b]"
+              className="shrink-0 rounded-xl bg-[#57B1B2] px-5 py-2 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#4a9a9b]"
             >
               View Your Job Posting
             </button>
@@ -678,7 +580,7 @@ export default function ClientProjectPage({
           </p>
 
           {/* ── Student Cards Grid ── */}
-          <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
             {displayStudents.map((student, idx) => {
               const isTopThree = idx < 3;
               const rank = idx + 1;
@@ -689,17 +591,11 @@ export default function ClientProjectPage({
                 : [];
               const hasProjects =
                 Array.isArray(student.projects) && student.projects.length > 0;
-              const skillMatch = getSkillMatch(student, requiredSkillNames);
-              const similarProjectExperience = hasSimilarProjectExperience(
-                student,
-                requiredSkillNames,
-                75,
-              );
 
               return (
                 <article
                   key={student.email}
-                  className={`relative flex flex-col justify-between rounded-xl bg-white p-5 ${CARD_SHADOW} overflow-visible border-2 transition-all ${isShortlisted ? 'border-emerald-500/30' : 'border-transparent'}`}
+                  className={`relative flex min-w-0 flex-col justify-between rounded-xl bg-white p-5 ${CARD_SHADOW} overflow-visible border-2 transition-all ${isShortlisted ? 'border-emerald-500/30' : 'border-transparent'}`}
                 >
                   {/* Shortlisted Indicator */}
                   {isShortlisted && (
@@ -736,16 +632,16 @@ export default function ClientProjectPage({
                           }`}
                         />
                       </button>
-                      <div className="flex-1">
-                        <div className="flex items-baseline gap-2">
-                          <h3 className="text-[16px] font-bold leading-tight text-gray-900">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-wrap items-baseline gap-2">
+                          <h3 className="min-w-0 max-w-full text-[16px] font-bold leading-tight text-gray-900 break-words [overflow-wrap:anywhere]">
                             {student.name || "Unknown Student"}
                           </h3>
-                          <span className="text-[13px] font-semibold text-[#5FB3B3]">
+                          <span className="shrink-0 text-[13px] font-semibold text-[#5FB3B3]">
                             {formatScore(student.final_score)} score
                           </span>
                         </div>
-                        <p className="mt-0.5 text-[13px] font-semibold text-gray-700">
+                        <p className="mt-0.5 max-w-full text-[13px] font-semibold text-gray-700 break-words [overflow-wrap:anywhere]">
                           {student.college || "Unknown College"}
                           {student.year ? `, Year ${student.year} ` : ""}
                         </p>
@@ -763,7 +659,7 @@ export default function ClientProjectPage({
                           return (
                             <span
                               key={sIdx}
-                              className="rounded px-2.5 py-0.5 text-[10px] font-bold"
+                              className="max-w-full rounded px-2.5 py-0.5 text-[10px] font-bold break-words [overflow-wrap:anywhere]"
                               style={{
                                 backgroundColor: SKILL_COLOR.bg,
                                 color: SKILL_COLOR.text,
@@ -783,7 +679,7 @@ export default function ClientProjectPage({
                     )}
 
                     {/* Summary */}
-                    <p className="mt-3 text-[12px] leading-relaxed text-gray-600">
+                    <p className="mt-3 max-w-full text-[12px] leading-relaxed text-gray-600 break-words [overflow-wrap:anywhere]">
                       {hasProjects
                         ? `Built ${student.projects!.length}+ project${student.projects!.length > 1 ? "s" : ""} including ${student.projects![0].title}`
                         : student.category
@@ -792,12 +688,10 @@ export default function ClientProjectPage({
                     </p>
 
                     {/* Stats */}
-                    <div className="mt-4 space-y-1 text-[12px] text-gray-700">
+                    <div className="mt-4 max-w-full space-y-1 text-[12px] text-gray-700 break-words [overflow-wrap:anywhere]">
                       <p>
                         <span className="font-bold">Skill Match:</span>{" "}
-                        {skillMatch.totalCount > 0
-                          ? `${skillMatch.matchedCount}/${skillMatch.totalCount} matched`
-                          : "No required skills listed"}
+                        {formatScore(student.final_score)}
                       </p>
                       <p>
                         <span className="font-bold">
@@ -805,10 +699,10 @@ export default function ClientProjectPage({
                         </span>{" "}
                         <span
                           className={
-                            similarProjectExperience ? "text-[#5FB3B3]" : "text-gray-500"
+                            hasProjects ? "text-[#5FB3B3]" : "text-gray-500"
                           }
                         >
-                          {similarProjectExperience ? "Yes" : "No"}
+                          {hasProjects ? "Yes" : "No"}
                         </span>
                       </p>
                       <p>
@@ -868,26 +762,26 @@ export default function ClientProjectPage({
       {expandedStudent && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={() => setExpandedStudent(null)}
+          onClick={() => dismissExpandedStudent()}
         >
           <div
-            className="relative mx-4 max-h-[90vh] w-full max-w-[820px] overflow-y-auto rounded-2xl bg-white p-8 shadow-2xl"
+            className="relative mx-4 max-h-[90vh] w-full min-w-0 max-w-[820px] overflow-x-hidden overflow-y-auto rounded-2xl bg-white p-8 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close */}
             <button
               type="button"
-              onClick={() => setExpandedStudent(null)}
+              onClick={() => dismissExpandedStudent()}
               className="absolute right-5 top-5 flex items-center gap-1 text-[13px] font-medium text-gray-600 hover:text-gray-1000 transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
 
             {/* ── Header ── */}
-            <div className="flex items-start justify-between">
-              <div>
+            <div className="flex min-w-0 items-start justify-between gap-4">
+              <div className="min-w-0 max-w-full flex-1 pr-8">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-[28px] font-bold text-gray-900">
+                  <h2 className="max-w-full text-[28px] font-bold text-gray-900 break-words [overflow-wrap:anywhere]">
                     {expandedStudent.name}
                   </h2>
                   <span className="rounded-full bg-[#C7DA8E] px-4 py-1 text-[13px] font-bold text-gray-900">
@@ -916,42 +810,39 @@ export default function ClientProjectPage({
                 </div>
 
                 {/* College + Degree */}
-                <div className="mt-3 space-y-1">
-                  <p className="flex items-center gap-2 text-[15px] font-semibold text-gray-900">
-                    <MapPin className="h-4 w-4 text-black" />
-                    {expandedStudent.college || "Unknown College"}
+                <div className="mt-3 min-w-0 space-y-1">
+                  <p className="flex items-start gap-2 text-[15px] font-semibold text-gray-900">
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-black" />
+                    <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+                      {expandedStudent.college || "Unknown College"}
+                    </span>
                   </p>
-                  <p className="flex items-center gap-2 text-[14px] font-medium text-gray-800">
-                    <GraduationCap className="h-4 w-4 text-black" />
-                    {expandedStudent.degree || expandedStudent.category || "Student"}
-                    {expandedStudent.branch ? ` - ${expandedStudent.branch}` : ""}
-                    {expandedStudent.year ? `, Year ${expandedStudent.year}` : ""}
+                  <p className="flex items-start gap-2 text-[14px] font-medium text-gray-800">
+                    <GraduationCap className="mt-0.5 h-4 w-4 shrink-0 text-black" />
+                    <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+                      {expandedStudent.degree || expandedStudent.category || "Student"}
+                      {expandedStudent.branch ? ` - ${expandedStudent.branch}` : ""}
+                      {expandedStudent.year ? `, Year ${expandedStudent.year}` : ""}
+                    </span>
                   </p>
                 </div>
 
                 {/* All skills summary */}
-                {expandedCandidateSkills.length > 0 && (
+                {Array.isArray(expandedStudent.skills) && expandedStudent.skills.length > 0 && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {expandedCandidateSkills.map((skillName, i) => {
-                      const isMatched = expandedMatchedSkillSet.has(normalizeSkillName(skillName));
+                    {expandedStudent.skills.map((s, i) => {
+                      const skillName = typeof s === "string" ? s : s?.skill || "Skill";
                       return (
                         <span
                           key={i}
-                          className="rounded-full px-3 py-0.5 text-[11px] font-bold text-[#3d8a8c]"
-                          style={{ backgroundColor: isMatched ? "#C7DA8E" : "#DFF0F0" }}
-                          title={isMatched ? "Matches project requirement" : "Candidate skill"}
+                          className="max-w-full rounded-full px-3 py-0.5 text-[11px] font-bold text-[#3d8a8c] break-words [overflow-wrap:anywhere]"
+                          style={{ backgroundColor: "#DFF0F0" }}
                         >
                           {skillName}
                         </span>
                       );
                     })}
                   </div>
-                )}
-
-                {expandedSkillMatch && expandedSkillMatch.totalCount > 0 && (
-                  <p className="mt-3 text-[13px] font-semibold text-gray-700">
-                    Skill Match: {expandedSkillMatch.matchedCount}/{expandedSkillMatch.totalCount} matched
-                  </p>
                 )}
               </div>
             </div>
@@ -966,21 +857,21 @@ export default function ClientProjectPage({
                       ? `${exp.startMonth} ${exp.startYear} - ${exp.endMonth} ${exp.endYear}`
                       : "";
                     return (
-                      <div key={i} className="rounded-xl border border-gray-200 p-4">
-                        <div className="flex items-start justify-between">
-                          <div>
+                      <div key={i} className="min-w-0 rounded-xl border border-gray-200 p-4">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <div className="min-w-0 max-w-full">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-[14px] font-bold text-gray-900">{exp.title}</span>
+                              <span className="max-w-full text-[14px] font-bold text-gray-900 break-words [overflow-wrap:anywhere]">{exp.title}</span>
                               <span className="rounded-full bg-[#DFF0F0] px-2.5 py-0.5 text-[10px] font-bold text-[#3d8a8c]">
                                 {exp.employmentType}
                               </span>
                             </div>
-                            <p className="mt-0.5 text-[13px] font-medium text-gray-600">
+                            <p className="mt-0.5 max-w-full text-[13px] font-medium text-gray-600 break-words [overflow-wrap:anywhere]">
                               {exp.company}
                             </p>
                           </div>
                           {duration && (
-                            <span className="shrink-0 text-[12px] text-gray-500">{duration}</span>
+                            <span className="shrink-0 text-right text-[12px] text-gray-500">{duration}</span>
                           )}
                         </div>
                         {Array.isArray(exp.skills) && exp.skills.length > 0 && (
@@ -993,7 +884,7 @@ export default function ClientProjectPage({
                           </div>
                         )}
                         {exp.description && (
-                          <p className="mt-2 text-[13px] leading-relaxed text-gray-600">{exp.description}</p>
+                          <p className="mt-2 max-w-full text-[13px] leading-relaxed text-gray-600 break-words [overflow-wrap:anywhere]">{exp.description}</p>
                         )}
                       </div>
                     );
@@ -1012,10 +903,10 @@ export default function ClientProjectPage({
                       ? `${proj.startMonth} ${proj.startYear}${proj.endMonth && proj.endYear ? ` - ${proj.endMonth} ${proj.endYear}` : ""}`
                       : "";
                     return (
-                      <div key={i} className="rounded-xl border border-gray-200 p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[14px] font-bold text-gray-900">{proj.title}</span>
+                      <div key={i} className="min-w-0 rounded-xl border border-gray-200 p-4">
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+                            <span className="max-w-full text-[14px] font-bold text-gray-900 break-words [overflow-wrap:anywhere]">{proj.title}</span>
                             {proj.type && (
                               <span className="rounded-full bg-[#DFF0F0] px-2.5 py-0.5 text-[10px] font-bold text-[#3d8a8c]">
                                 {proj.type === "Personal" ? "Personal Project" : proj.type}
@@ -1041,7 +932,7 @@ export default function ClientProjectPage({
                           </div>
                         )}
                         {proj.description && (
-                          <p className="mt-2 text-[13px] leading-relaxed text-gray-600">{proj.description}</p>
+                          <p className="mt-2 max-w-full text-[13px] leading-relaxed text-gray-600 break-words [overflow-wrap:anywhere]">{proj.description}</p>
                         )}
                         {proj.githubLink && (
                           <a
@@ -1066,9 +957,9 @@ export default function ClientProjectPage({
                 <h3 className="text-[18px] font-bold text-gray-900">Hackathons</h3>
                 <div className="mt-3 space-y-3">
                   {expandedStudent.hackathons.map((hack, i) => (
-                    <div key={i} className="rounded-xl border border-gray-200 p-4">
+                    <div key={i} className="min-w-0 rounded-xl border border-gray-200 p-4">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[14px] font-bold text-gray-900">{hack.name}</span>
+                        <span className="max-w-full text-[14px] font-bold text-gray-900 break-words [overflow-wrap:anywhere]">{hack.name}</span>
                         <span className="rounded-full bg-[#DFF0F0] px-2.5 py-0.5 text-[10px] font-bold text-[#3d8a8c]">
                           {hack.type}
                         </span>
@@ -1076,7 +967,7 @@ export default function ClientProjectPage({
                           {hack.placement}
                         </span>
                       </div>
-                      <p className="mt-1 text-[13px] font-medium text-gray-600">
+                      <p className="mt-1 max-w-full text-[13px] font-medium text-gray-600 break-words [overflow-wrap:anywhere]">
                         {hack.projectName} · {hack.role} · Team of {hack.teamSize}
                       </p>
                       {Array.isArray(hack.techStack) && hack.techStack.length > 0 && (
@@ -1089,7 +980,7 @@ export default function ClientProjectPage({
                         </div>
                       )}
                       {hack.description && (
-                        <p className="mt-2 text-[13px] leading-relaxed text-gray-600">{hack.description}</p>
+                        <p className="mt-2 max-w-full text-[13px] leading-relaxed text-gray-600 break-words [overflow-wrap:anywhere]">{hack.description}</p>
                       )}
                       {hack.githubLink && (
                         <a 
@@ -1113,14 +1004,14 @@ export default function ClientProjectPage({
                 <h3 className="text-[18px] font-bold text-gray-900">Awards</h3>
                 <div className="mt-3 space-y-2">
                   {expandedStudent.awards.map((aw, i) => (
-                    <div key={i} className="rounded-xl border border-gray-200 p-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[14px] font-bold text-gray-900">{aw.title}</span>
+                    <div key={i} className="min-w-0 rounded-xl border border-gray-200 p-4">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <span className="max-w-full text-[14px] font-bold text-gray-900 break-words [overflow-wrap:anywhere]">{aw.title}</span>
                         <span className="rounded-full bg-[#DFF0F0] px-2.5 py-0.5 text-[10px] font-bold text-[#3d8a8c]">
                           {aw.category}
                         </span>
                       </div>
-                      <p className="mt-0.5 text-[13px] text-gray-600">
+                      <p className="mt-0.5 max-w-full text-[13px] text-gray-600 break-words [overflow-wrap:anywhere]">
                         {aw.organization} · {aw.month} {aw.year}
                       </p>
                     </div>
@@ -1151,11 +1042,11 @@ export default function ClientProjectPage({
 
       {showShortlistConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md">
-          <div className="mx-4 w-full max-w-[400px] rounded-2xl bg-white p-8 shadow-2xl text-center">
+          <div className="mx-4 w-full min-w-0 max-w-[400px] overflow-x-hidden rounded-2xl bg-white p-8 text-center shadow-2xl">
             
             <h3 className="text-2xl font-bold text-gray-900">Great Choice!</h3>
-            <p className="mt-3 text-sm leading-relaxed text-gray-600">
-              <strong>{expandedStudent?.name}</strong>'s profile will appear in the chat window where you can talk to the him/her before finalizing whether you want to work with him/her.  
+            <p className="mt-3 text-sm leading-relaxed text-gray-600 break-words [overflow-wrap:anywhere]">
+              <strong className="break-words [overflow-wrap:anywhere]">{expandedStudent?.name}</strong>'s profile will appear in the chat window where you can talk to the him/her before finalizing whether you want to work with him/her.  
             </p>
 
             <div className="mt-8 flex flex-col gap-3">
@@ -1178,7 +1069,7 @@ export default function ClientProjectPage({
                   
                   setIsShortlisting(false);
                   setShowShortlistConfirm(false);
-                  setExpandedStudent(null);
+                  dismissExpandedStudent();
                   toast.success(`${expandedStudent?.name} has been added to your shortlist.`);
                 }}
                 className={`flex items-center justify-center rounded-xl bg-gray-900 py-3 text-sm font-bold text-white transition-all ${isShortlisting ? 'opacity-70 cursor-wait' : 'hover:scale-[1.02] active:scale-[0.98] hover:bg-black'}`}

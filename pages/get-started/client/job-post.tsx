@@ -305,42 +305,54 @@ const TIMELINE_OPTIONS = [
   "More than 1 year"
 ];
 const BUDGET_MIN = 0;
-const BUDGET_MAX = 80000;
+/** Slider only — amounts above this can be typed in the number field. */
+const BUDGET_SLIDER_MAX = 80000;
 const BUDGET_STEP = 500;
-const MIN_AI_HELPER_VIEW_MS = 1200;
+const PREVIEW_DELAY_MS = 1800;
 const PROJECT_SUBMITTED_REDIRECT_DELAY_MS = 2500;
 const MAX_SKILLS = 20;
 
-function buildTimelineEstimate(years: string, months: string, weeks: string) {
-  const upperParts = [
-    years !== "0" ? `${years} Year${years === "1" ? "" : "s"}` : "",
-    months !== "0" ? `${months} Month${months === "1" ? "" : "s"}` : "",
-  ].filter(Boolean);
+/** Inverse of saveDraftToStorage timeline string (handles "Year(s)", "Month(s)", "Week(s)", multiline). */
+function parseTimelineEstimate(estimate: string): {
+  years: string;
+  months: string;
+  weeks: string;
+} {
+  const flat = (estimate || "").replace(/\s+/g, " ").trim();
 
-  const weekPart = weeks !== "0" ? `${weeks} Week${weeks === "1" ? "" : "s"}` : "";
-  const upperStr = upperParts.join(" & ");
+  const yMatch = flat.match(/(5\+|\d+)\s+Years?/i);
+  let years = "0";
+  if (yMatch) {
+    const v = yMatch[1];
+    if (v === "5+") years = "5+";
+    else if (v === "5") years = "5+";
+    else if (/^[0-4]$/.test(v)) years = v;
+  }
 
-  if (upperStr && weekPart) return `${upperStr}\n& ${weekPart}`;
-  if (upperStr) return upperStr;
-  if (weekPart) return weekPart;
-  return "";
+  const mMatch = flat.match(/(\d+)\s+Months?/i);
+  let months = "0";
+  if (mMatch) {
+    const n = parseInt(mMatch[1], 10);
+    if (!Number.isNaN(n) && n >= 0 && n <= 11) months = String(n);
+  }
+
+  const wMatch = flat.match(/(\d+)\s+Weeks?/i);
+  let weeks = "0";
+  if (wMatch) {
+    const n = parseInt(wMatch[1], 10);
+    if (!Number.isNaN(n) && n >= 0 && n <= 4) weeks = String(n);
+  }
+
+  return { years, months, weeks };
 }
 
-function parseTimelineEstimateToParts(timelineEstimate: string) {
-  const yearsMatch = timelineEstimate.match(/(\d\+?)\s*Year/i);
-  const monthsMatch = timelineEstimate.match(/(\d\+?)\s*Month/i);
-  const weeksMatch = timelineEstimate.match(/(\d\+?)\s*Week/i);
-
-  const normalizePart = (value: string | undefined, fallback: string) => {
-    if (!value) return fallback;
-    return value.endsWith("+") ? value : value;
-  };
-
-  return {
-    years: normalizePart(yearsMatch?.[1], "0"),
-    months: normalizePart(monthsMatch?.[1], "0"),
-    weeks: normalizePart(weeksMatch?.[1], "0"),
-  };
+function normalizeJobPostSkills(raw: unknown): SkillItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is SkillItem =>
+      typeof item?.name === "string" &&
+      (item?.level === "Required" || item?.level === "Good to have"),
+  );
 }
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
@@ -404,12 +416,6 @@ const HelperBox = () => {
 
 export default function ClientJobPostPage({ clientEmail }: { clientEmail: string }) {
   const router = useRouter();
-  const isEditMode =
-    typeof router.query.mode === "string" && router.query.mode.toLowerCase() === "edit";
-  const editProjectId =
-    typeof router.query.id === "string" && router.query.id.trim().length > 0
-      ? router.query.id.trim()
-      : "";
   const [view, setView] = useState<"form" | "loading" | "submitted">("form");
   const [step, setStep] = useState<1 | 2>(1);
   const [title, setTitle] = useState("");
@@ -424,11 +430,15 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
   const [skillSearchQueries, setSkillSearchQueries] = useState<Record<number, string>>({});
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isHydratingDraft, setIsHydratingDraft] = useState(false);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(true);
+  const routeTimerRef = useRef<number | null>(null);
   const submittedTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
+      if (routeTimerRef.current !== null) {
+        window.clearTimeout(routeTimerRef.current);
+      }
       if (submittedTimerRef.current !== null) {
         window.clearTimeout(submittedTimerRef.current);
       }
@@ -438,87 +448,126 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
   useEffect(() => {
     if (!router.isReady) return;
 
-    const mode = typeof router.query.mode === "string" ? router.query.mode : "";
-    const isEditMode = mode.toLowerCase() === "edit";
+    const q = router.query;
+    const wantNewDraft =
+      q.new === "1" || (Array.isArray(q.new) && q.new[0] === "1");
+    const fromReview =
+      q.from === "review" ||
+      (Array.isArray(q.from) && q.from[0] === "review");
+    const resumeDraft =
+      q.resume === "1" ||
+      (Array.isArray(q.resume) && q.resume[0] === "1");
+    const shouldHydrate = fromReview || resumeDraft;
 
-    if (!isEditMode) {
-      // Fresh create flow starts from a clean slate.
+    function resetToFreshForm() {
       try {
         window.localStorage.removeItem(JOB_POST_DRAFT_STORAGE_KEY);
       } catch {
-        // ignore storage failures
+        // ignore
       }
+      setTitle("");
+      setCategory("");
+      setDescription("");
+      setTimelineYears("0");
+      setTimelineMonths("0");
+      setTimelineWeeks("0");
+      setDeliverables("");
+      setBudget(20000);
+      setSkills([]);
+      setOpenSkillPopovers({});
+      setSkillSearchQueries({});
+      setStep(1);
+      setIsLoadingDraft(false);
+    }
+
+    // Explicit new, or any entry that is not Edit-from-review / resume-draft
+    if (wantNewDraft || !shouldHydrate) {
+      resetToFreshForm();
       return;
     }
 
     let cancelled = false;
 
-    const applyDraftToForm = (incomingDraft: JobPostDraft) => {
-      if (cancelled) return;
-
-      setTitle(incomingDraft.title ?? "");
-      setCategory(incomingDraft.category ?? "");
-      setDescription(incomingDraft.description ?? "");
-      setDeliverables(incomingDraft.deliverables ?? "");
-      setBudget(typeof incomingDraft.budget === "number" ? incomingDraft.budget : 20000);
-      setSkills(
-        Array.isArray(incomingDraft.skills)
-          ? incomingDraft.skills.filter(
-              (item): item is SkillItem =>
-                typeof item?.name === "string" &&
-                (item?.level === "Required" || item?.level === "Good to have"),
-            )
-          : [],
+    function applyDraftFromJobPostShape(d: JobPostDraft) {
+      setTitle(typeof d.title === "string" ? d.title : "");
+      const cat = typeof d.category === "string" ? d.category : "";
+      setCategory(isValidProjectCategory(cat) ? cat : "");
+      setDescription(typeof d.description === "string" ? d.description : "");
+      setDeliverables(typeof d.deliverables === "string" ? d.deliverables : "");
+      const b = typeof d.budget === "number" && Number.isFinite(d.budget) ? d.budget : 0;
+      setBudget(Math.max(BUDGET_MIN, b));
+      const { years, months, weeks } = parseTimelineEstimate(
+        typeof d.timelineEstimate === "string" ? d.timelineEstimate : "",
       );
+      setTimelineYears(years);
+      setTimelineMonths(months);
+      setTimelineWeeks(weeks);
+      setSkills(normalizeJobPostSkills(d.skills));
+      setOpenSkillPopovers({});
+      setSkillSearchQueries({});
+      // Always land on step 1 ("Post Your First Project"); step 2 fields stay prefilled when they continue.
+      setStep(1);
+    }
 
-      const timelineParts = parseTimelineEstimateToParts(incomingDraft.timelineEstimate ?? "");
-      setTimelineYears(timelineParts.years);
-      setTimelineMonths(timelineParts.months);
-      setTimelineWeeks(timelineParts.weeks);
-    };
-
-    async function hydrateDraftForEdit() {
-      setIsHydratingDraft(true);
-
+    async function loadDraft() {
       try {
-        const res = await fetch(
-          editProjectId
-            ? `/api/client/job-post/get?id=${encodeURIComponent(editProjectId)}`
-            : "/api/client/job-post/get",
-        );
+        const res = await fetch("/api/client/job-post/get");
         if (res.ok) {
-          const { draft: dbDraft } = await res.json();
-          if (dbDraft) {
-            applyDraftToForm(dbDraft as JobPostDraft);
-            setIsHydratingDraft(false);
+          const body = (await res.json()) as { draft: JobPostDraft | null };
+          if (!cancelled && body.draft) {
+            applyDraftFromJobPostShape(body.draft);
+            try {
+              window.localStorage.setItem(
+                JOB_POST_DRAFT_STORAGE_KEY,
+                JSON.stringify(body.draft),
+              );
+            } catch {
+              // non-critical
+            }
             return;
           }
         }
       } catch {
-        // fallback to local storage
+        // fall through to localStorage
       }
 
-      try {
-        const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-        if (rawDraft) {
-          const parsed = JSON.parse(rawDraft) as JobPostDraft;
-          applyDraftToForm(parsed);
-        } else {
-          toast.error("No existing project draft found to edit.");
+      const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
+      if (rawDraft && !cancelled) {
+        try {
+          const parsed = JSON.parse(rawDraft) as Partial<JobPostDraft>;
+          if (
+            typeof parsed.title === "string" &&
+            typeof parsed.category === "string" &&
+            typeof parsed.description === "string" &&
+            typeof parsed.timelineEstimate === "string" &&
+            typeof parsed.deliverables === "string" &&
+            typeof parsed.budget === "number" &&
+            Array.isArray(parsed.skills)
+          ) {
+            applyDraftFromJobPostShape({
+              title: parsed.title,
+              category: parsed.category,
+              description: parsed.description,
+              timelineEstimate: parsed.timelineEstimate,
+              deliverables: parsed.deliverables,
+              budget: parsed.budget,
+              skills: normalizeJobPostSkills(parsed.skills),
+            });
+          }
+        } catch {
+          // keep defaults
         }
-      } catch {
-        toast.error("Unable to load existing draft.");
-      } finally {
-        if (!cancelled) setIsHydratingDraft(false);
       }
     }
 
-    void hydrateDraftForEdit();
+    void loadDraft().finally(() => {
+      if (!cancelled) setIsLoadingDraft(false);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [router.isReady, router.query.mode, editProjectId]);
+  }, [router.isReady, router.query.new, router.query.from, router.query.resume]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -605,20 +654,35 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     setSkills((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function buildDraftFromForm(): JobPostDraft {
-    return {
-      id: editProjectId || undefined,
+  function saveDraftToStorage() {
+    const upperParts = [
+      timelineYears !== "0" ? `${timelineYears} Year${timelineYears === "1" ? "" : "s"}` : "",
+      timelineMonths !== "0" ? `${timelineMonths} Month${timelineMonths === "1" ? "" : "s"}` : ""
+    ].filter(Boolean);
+    
+    const weekPart = timelineWeeks !== "0" ? `${timelineWeeks} Week${timelineWeeks === "1" ? "" : "s"}` : "";
+
+    let timelineEstimate = "";
+    const upperStr = upperParts.join(" & ");
+
+    if (upperStr && weekPart) {
+      timelineEstimate = `${upperStr}\n& ${weekPart}`;
+    } else if (upperStr) {
+      timelineEstimate = upperStr;
+    } else if (weekPart) {
+      timelineEstimate = weekPart;
+    }
+
+    const draft: JobPostDraft = {
       title: title.trim(),
       category,
       description: description.trim(),
-      timelineEstimate: buildTimelineEstimate(timelineYears, timelineMonths, timelineWeeks),
+      timelineEstimate,
       deliverables: deliverables.trim(),
       budget,
       skills,
     };
-  }
 
-  function persistDraft(draft: JobPostDraft) {
     try {
       window.localStorage.setItem(JOB_POST_DRAFT_STORAGE_KEY, JSON.stringify(draft));
     } catch {
@@ -633,42 +697,6 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     }).catch(() => {
       // swallow — localStorage copy is the fallback
     });
-  }
-
-  async function polishDraftWithAI(draft: JobPostDraft): Promise<JobPostDraft> {
-    const response = await fetch("/api/client/job-post/polish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: draft.title,
-        description: draft.description,
-        deliverables: draft.deliverables,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("AI polish endpoint failed");
-    }
-
-    const data = (await response.json()) as {
-      title?: string;
-      description?: string;
-      deliverables?: string;
-      usedAI?: boolean;
-    };
-
-    return {
-      ...draft,
-      title: typeof data.title === "string" && data.title.trim() ? data.title.trim() : draft.title,
-      description:
-        typeof data.description === "string" && data.description.trim()
-          ? data.description.trim()
-          : draft.description,
-      deliverables:
-        typeof data.deliverables === "string" && data.deliverables.trim()
-          ? data.deliverables.trim()
-          : draft.deliverables,
-    };
   }
 
   function validateStepOne() {
@@ -705,7 +733,7 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     return null;
   }
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+  function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     if (step === 1) {
@@ -728,42 +756,18 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     setIsSubmitting(true);
     setView("loading");
 
-    const draftBeforePolish = buildDraftFromForm();
-    const startedAt = Date.now();
-    let finalDraft = draftBeforePolish;
-
-    try {
-      finalDraft = await polishDraftWithAI(draftBeforePolish);
-
-      // Keep form state synced with the AI-improved copy so edit mode reflects what was generated.
-      setTitle(finalDraft.title);
-      setDescription(finalDraft.description);
-      setDeliverables(finalDraft.deliverables);
-    } catch {
-      toast.error("AI helper could not improve text right now. Continuing with your original content.");
+    if (routeTimerRef.current !== null) {
+      window.clearTimeout(routeTimerRef.current);
     }
 
-    persistDraft(finalDraft);
+    saveDraftToStorage();
 
-    const elapsed = Date.now() - startedAt;
-    if (elapsed < MIN_AI_HELPER_VIEW_MS) {
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, MIN_AI_HELPER_VIEW_MS - elapsed);
-      });
-    }
-
-    try {
-      const previewTarget = draftBeforePolish.id
-        ? `/get-started/client/job-post-review?id=${encodeURIComponent(draftBeforePolish.id)}`
-        : "/get-started/client/job-post-review";
-      await router.push(previewTarget);
+    routeTimerRef.current = window.setTimeout(() => {
+      void router.push("/get-started/client/job-post-review");
       setIsSubmitting(false);
       toast.success("Project preview generated.");
-    } catch {
-      setIsSubmitting(false);
-      setView("form");
-      toast.error("Unable to open preview. Please try again.");
-    }
+      routeTimerRef.current = null;
+    }, PREVIEW_DELAY_MS);
   }
 
   const formattedBudget = useMemo(() => new Intl.NumberFormat("en-IN").format(budget), [budget]);
@@ -819,19 +823,16 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
           </section>
         )}
 
-        {view === "form" && isHydratingDraft && (
-          <section className="mx-auto flex min-h-[70vh] w-full max-w-6xl items-center justify-center px-6 py-10 sm:px-10 md:px-14 lg:px-20">
-            <div className="max-w-[760px] text-center font-ovo text-black">
-              <h2 className="text-3xl text-black/90 sm:text-4xl">Loading your existing project draft...</h2>
-              <div className="mt-8 flex flex-col items-center gap-2">
-                <Loader className="h-12 w-12 animate-spin text-black/70" />
-                <p className="text-[11px] font-sans uppercase tracking-wide text-black/60">Loading...</p>
-              </div>
+        {view === "form" && isLoadingDraft && (
+          <section className="mx-auto flex min-h-[50vh] w-full max-w-6xl items-center justify-center px-6 py-16 sm:px-10 md:px-14 lg:px-20">
+            <div className="flex flex-col items-center gap-3 text-center font-sans text-black/70">
+              <Loader className="h-10 w-10 animate-spin" />
+              <p className="text-sm font-medium">Loading your project draft…</p>
             </div>
           </section>
         )}
 
-        {view === "form" && !isHydratingDraft && (
+        {view === "form" && !isLoadingDraft && (
         <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-10 md:px-14 lg:px-20">
           <div
             className={`grid grid-cols-1 gap-10 ${
@@ -841,33 +842,22 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
             <div className="w-full max-w-3xl font-ovo text-black">
               <div className="flex items-start justify-between gap-4">
                 <h1 className="font-serif text-4xl font-normal tracking-tight text-black/90">
-                  {isEditMode
-                    ? `Editing Project${title.trim() ? `: ${title.trim()}` : ""}`
-                    : "Post Your First Project"}
+                  Post Your First Project
                 </h1>
-                <div className="mt-1 flex shrink-0 items-center gap-3">
-                  {isEditMode && (
-                    <span className="rounded-full bg-[#dff0f0] px-3 py-1 text-xs font-sans font-semibold text-[#2d7f81]">
-                      Edit Mode
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      await fetch("/api/client/auth/logout", { method: "POST" });
-                      void router.push("/get-started/client/verify");
-                    }}
-                    className="flex items-center gap-1.5 text-sm font-sans font-medium text-black/50 hover:text-black/80 transition-colors"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign Out
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch("/api/client/auth/logout", { method: "POST" });
+                    void router.push("/get-started/client/verify");
+                  }}
+                  className="mt-1 flex shrink-0 items-center gap-1.5 text-sm font-sans font-medium text-black/50 hover:text-black/80 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </button>
               </div>
               <p className="mt-3 text-[1.2rem] font-semibold text-[#58b7ba]">
-                {isEditMode
-                  ? "Update your project details and republish when you are ready."
-                  : "Describe the project you want help with. We&apos;ll recommend the best student talent for the job."}
+                Describe the project you want help with. We&apos;ll recommend the best student talent for the job.
               </p>
               <form onSubmit={onSubmit} className="mt-10 space-y-8">
                 {step === 1 ? (
@@ -1142,13 +1132,18 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
                             <input
                               type="range"
                               min={BUDGET_MIN}
-                              max={BUDGET_MAX}
+                              max={BUDGET_SLIDER_MAX}
                               step={BUDGET_STEP}
-                              value={budget}
+                              value={Math.min(Math.max(budget, BUDGET_MIN), BUDGET_SLIDER_MAX)}
                               onChange={(e) => setBudget(Number(e.target.value))}
                               className="h-2.5 w-full cursor-pointer appearance-none rounded-full outline-none transition-all [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:bg-[#5FB3B3] [&::-moz-range-thumb]:shadow-md [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#5FB3B3] [&::-webkit-slider-thumb]:shadow-[0_2px_4px_rgba(0,0,0,0.2)] hover:[&::-webkit-slider-thumb]:scale-110 active:[&::-webkit-slider-thumb]:scale-95"
                               style={{
-                                background: `linear-gradient(to right, #5FB3B3 ${((budget - BUDGET_MIN) / (BUDGET_MAX - BUDGET_MIN)) * 100}%, #e5e7eb ${((budget - BUDGET_MIN) / (BUDGET_MAX - BUDGET_MIN)) * 100}%)`,
+                                background: (() => {
+                                  const v = Math.min(Math.max(budget, BUDGET_MIN), BUDGET_SLIDER_MAX);
+                                  const pct =
+                                    ((v - BUDGET_MIN) / (BUDGET_SLIDER_MAX - BUDGET_MIN)) * 100;
+                                  return `linear-gradient(to right, #5FB3B3 ${pct}%, #e5e7eb ${pct}%)`;
+                                })(),
                               }}
                             />
                           </div>
@@ -1163,16 +1158,19 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
                             <input
                               type="number"
                               min={BUDGET_MIN}
-                              max={BUDGET_MAX}
                               value={budget || ""}
                               onChange={(e) => {
-                                const val = parseInt(e.target.value, 10);
-                                setBudget(isNaN(val) ? 0 : val);
+                                const raw = e.target.value;
+                                if (raw === "") {
+                                  setBudget(0);
+                                  return;
+                                }
+                                const val = parseInt(raw, 10);
+                                setBudget(Number.isNaN(val) ? 0 : val);
                               }}
                               onBlur={(e) => {
                                 const val = parseInt(e.target.value, 10);
-                                if (isNaN(val) || val < BUDGET_MIN) setBudget(BUDGET_MIN);
-                                else if (val > BUDGET_MAX) setBudget(BUDGET_MAX);
+                                if (Number.isNaN(val) || val < BUDGET_MIN) setBudget(BUDGET_MIN);
                               }}
                               className="w-full bg-transparent p-0 text-center font-sans text-2xl font-bold text-black outline-none outline-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
