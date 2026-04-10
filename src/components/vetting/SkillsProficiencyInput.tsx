@@ -8,7 +8,7 @@ import { X, Plus, Check } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { FormFieldProp } from "../../lib/schemas/formSchema";
 import { toast } from "sonner";
-import { getSkillsForCategory } from "../../lib/skillsByCategory";
+import { getSkillsForCategory } from "../../lib/domainSkills";
 
 export function SkillsProficiencyInput({ form }: { form: FormFieldProp }) {
   const skills = form.watch("skills") || [];
