@@ -10,6 +10,9 @@ import {
   Settings,
   Search,
   Users,
+  Cpu,
+  Smartphone,
+  Monitor,
 } from "lucide-react";
 import { getClientEmailFromSSP } from "@/src/lib/clientAuthUtils";
 import { supabaseAdmin } from "@/src/lib/supabase-admin";
@@ -34,6 +37,20 @@ type ChatPageProps = {
   project: JobPost;
   students: StudentRow[];
 };
+
+function getCategoryIcon(category: string, className: string) {
+  const cat = (category || "").toLowerCase();
+  if (cat.includes("ai") || cat.includes("ml")) {
+    return <Cpu className={className} />;
+  }
+  if (cat.includes("mobile")) {
+    return <Smartphone className={className} />;
+  }
+  if (cat.includes("web")) {
+    return <Monitor className={className} />;
+  }
+  return <GitBranch className={className} />;
+}
 
 function shortlistStorageKey(clientEmail: string, projectId: string) {
   return `client-shortlist:${clientEmail}:${projectId}`;
@@ -252,9 +269,11 @@ export default function ClientProjectChatPage({
               </button>
 
               <div className="mb-3 flex w-full min-w-0 items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-left text-[12px] font-semibold text-white">
-                <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                {getCategoryIcon(project.category, "h-3.5 w-3.5 shrink-0")}
                 <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
-                  Project: {projectName}
+                  {projectName.length > 12
+                    ? `${projectName.slice(0, 12)}...`
+                    : projectName}
                 </span>
               </div>
             </div>
@@ -300,7 +319,7 @@ export default function ClientProjectChatPage({
               <button
                 type="button"
                 onClick={() =>
-                  void router.push("/get-started/client/job-post-review?view=readonly")
+                  void router.push(`/get-started/client/job-post-review?id=${project.id}&view=readonly`)
                 }
                 className="shrink-0 rounded-2xl bg-[#57b1b2] px-8 py-3 text-[13px] font-semibold text-white shadow"
               >

@@ -10,6 +10,9 @@ import {
   ChevronRight,
   Home,
   Search,
+  Cpu,
+  Smartphone,
+  Monitor,
 } from "lucide-react";
 import { getClientEmailFromSSP } from "@/src/lib/clientAuthUtils";
 import { supabaseAdmin } from "@/src/lib/supabase-admin";
@@ -85,6 +88,20 @@ function formatDate(dateStr: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function getCategoryIcon(category: string, className: string) {
+  const cat = (category || "").toLowerCase();
+  if (cat.includes("ai") || cat.includes("ml")) {
+    return <Cpu className={className} />;
+  }
+  if (cat.includes("mobile")) {
+    return <Smartphone className={className} />;
+  }
+  if (cat.includes("web")) {
+    return <Monitor className={className} />;
+  }
+  return <GitBranch className={className} />;
 }
 
 function statusBadge(status: string) {
@@ -236,9 +253,9 @@ export default function ClientDashboardPage({
                   }
                   className="flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
                 >
-                  <GitBranch className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                  {getCategoryIcon(post.category, "h-3.5 w-3.5 shrink-0 text-gray-400")}
                   <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
-                    Project: {post.title || "Untitled"}
+                    {post.title || "Untitled"}
                   </span>
                 </button>
               ))}

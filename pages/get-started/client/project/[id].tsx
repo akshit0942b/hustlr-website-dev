@@ -17,6 +17,9 @@ import {
   Github,
   Linkedin,
   Rocket,
+  Cpu,
+  Smartphone,
+  Monitor,
 } from "lucide-react";
 import { getClientEmailFromSSP } from "@/src/lib/clientAuthUtils";
 import { supabaseAdmin } from "@/src/lib/supabase-admin";
@@ -176,6 +179,20 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
 };
 
 /* ───────── Helpers ───────── */
+
+function getCategoryIcon(category: string, className: string) {
+  const cat = (category || "").toLowerCase();
+  if (cat.includes("ai") || cat.includes("ml")) {
+    return <Cpu className={className} />;
+  }
+  if (cat.includes("mobile")) {
+    return <Smartphone className={className} />;
+  }
+  if (cat.includes("web")) {
+    return <Monitor className={className} />;
+  }
+  return <GitBranch className={className} />;
+}
 
 /* Skill pill color — light teal bg with dark teal text */
 const SKILL_COLOR = { bg: "#DFF0F0", text: "#3d8a8c" };
@@ -449,13 +466,9 @@ export default function ClientProjectPage({
                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     }`}
                   >
-                    <GitBranch
-                      className={`h-3.5 w-3.5 shrink-0 ${
-                        isActive ? "text-gray-300" : "text-gray-400"
-                      }`}
-                    />
+                    {getCategoryIcon(post.category, `h-3.5 w-3.5 shrink-0 ${isActive ? "text-gray-300" : "text-gray-400"}`)}
                     <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
-                      Project: {post.title || "Untitled"}
+                      {post.title || "Untitled"}
                     </span>
                   </button>
                 );
@@ -509,7 +522,7 @@ export default function ClientProjectPage({
             <button
               type="button"
               onClick={() =>
-                void router.push("/get-started/client/job-post-review?view=readonly")
+                void router.push(`/get-started/client/job-post-review?id=${project.id}&view=readonly`)
               }
               className="shrink-0 rounded-xl bg-[#57B1B2] px-5 py-2 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-[#4a9a9b]"
             >
@@ -564,7 +577,7 @@ export default function ClientProjectPage({
                     onClick={() => setActiveFilter(filter.key)}
                     className={`relative z-10 flex items-center justify-center rounded-full py-1.5 text-[12px] font-semibold transition-colors duration-300 ${
                       activeFilter === filter.key
-                        ? "text-white"
+                        ? "text-[#084E4F]"
                         : "text-[#2a7a7b]"
                     }`}
                   >
