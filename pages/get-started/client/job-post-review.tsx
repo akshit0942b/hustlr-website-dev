@@ -67,12 +67,37 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
   // Load draft — try DB first, fall back to localStorage
   useEffect(() => {
     async function loadDraft() {
+      let localMinimumSalary: number | null = null;
+      try {
+        const raw = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<JobPostDraft>;
+          if (typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)) {
+            localMinimumSalary = parsed.minimumSalary;
+          }
+        }
+      } catch {
+        // ignore local draft parse errors
+      }
+
       try {
         const res = await fetch("/api/client/job-post/get");
         if (res.ok) {
           const { draft: dbDraft } = await res.json();
           if (dbDraft) {
-            setDraft(dbDraft as JobPostDraft);
+            const typedDbDraft = dbDraft as JobPostDraft;
+            const dbMinimumSalary =
+              typeof typedDbDraft.minimumSalary === "number" && Number.isFinite(typedDbDraft.minimumSalary)
+                ? typedDbDraft.minimumSalary
+                : null;
+            const mergedDraft: JobPostDraft = {
+              ...typedDbDraft,
+              minimumSalary:
+                dbMinimumSalary !== null && dbMinimumSalary > 0
+                  ? dbMinimumSalary
+                  : (localMinimumSalary ?? 0),
+            };
+            setDraft(mergedDraft);
             return;
           }
         }
@@ -106,6 +131,10 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
             timelineEstimate: parsed.timelineEstimate,
             deliverables: parsed.deliverables,
             budget: parsed.budget,
+            minimumSalary:
+              typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)
+                ? parsed.minimumSalary
+                : 0,
             skills: validSkills,
           });
         }
@@ -174,6 +203,14 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
     () => new Intl.NumberFormat("en-IN").format(draft?.budget ?? 0),
     [draft?.budget],
   );
+
+  const formattedMinimumSalary = useMemo(() => {
+    const value = draft?.minimumSalary;
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      return "Not set";
+    }
+    return `₹${new Intl.NumberFormat("en-IN").format(value)}`;
+  }, [draft?.minimumSalary]);
 
   const skillTags = useMemo(() => (draft?.skills ?? []).slice(0, 3), [draft?.skills]);
 
@@ -272,12 +309,18 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
                   {draft.title || "Untitled Project"}
                 </h2>
 
-                <div className="mt-8 grid min-w-0 grid-cols-2 gap-6 text-center text-black/90">
+                <div className="mt-8 grid min-w-0 grid-cols-1 gap-6 text-center text-black/90 sm:grid-cols-3">
                   <div className="flex min-w-0 flex-col items-center overflow-hidden">
                     <p className="w-full min-w-0 max-w-full text-2xl sm:text-3xl leading-none break-words [overflow-wrap:anywhere]">
                       ₹{formattedBudget}
                     </p>
                     <p className="text-lg sm:text-xl leading-tight text-black/60 mt-2">fixed price</p>
+                  </div>
+                  <div className="flex min-w-0 flex-col items-center justify-center overflow-hidden">
+                    <p className="w-full min-w-0 max-w-full text-2xl sm:text-3xl leading-tight break-words [overflow-wrap:anywhere]">
+                      {formattedMinimumSalary}
+                    </p>
+                    <p className="text-lg sm:text-xl leading-tight text-black/60 mt-2">minimum salary</p>
                   </div>
                   <div className="flex min-w-0 flex-col items-center justify-center overflow-hidden">
                     <p className="w-full min-w-0 max-w-full text-2xl sm:text-3xl whitespace-pre-line leading-tight break-words [overflow-wrap:anywhere]">

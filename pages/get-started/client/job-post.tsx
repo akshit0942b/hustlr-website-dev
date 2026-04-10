@@ -426,6 +426,7 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
   const [timelineWeeks, setTimelineWeeks] = useState("0");
   const [deliverables, setDeliverables] = useState("");
   const [budget, setBudget] = useState(20000);
+  const [minimumSalary, setMinimumSalary] = useState<number | null>(null);
   const [openSkillPopovers, setOpenSkillPopovers] = useState<Record<number, boolean>>({});
   const [skillSearchQueries, setSkillSearchQueries] = useState<Record<number, string>>({});
   const [skills, setSkills] = useState<SkillItem[]>([]);
@@ -473,6 +474,7 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
       setTimelineWeeks("0");
       setDeliverables("");
       setBudget(20000);
+      setMinimumSalary(null);
       setSkills([]);
       setOpenSkillPopovers({});
       setSkillSearchQueries({});
@@ -496,6 +498,8 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
       setDeliverables(typeof d.deliverables === "string" ? d.deliverables : "");
       const b = typeof d.budget === "number" && Number.isFinite(d.budget) ? d.budget : 0;
       setBudget(Math.max(BUDGET_MIN, b));
+      const ms = typeof d.minimumSalary === "number" && Number.isFinite(d.minimumSalary) ? d.minimumSalary : null;
+      setMinimumSalary(ms !== null && ms >= 0 ? ms : null);
       const { years, months, weeks } = parseTimelineEstimate(
         typeof d.timelineEstimate === "string" ? d.timelineEstimate : "",
       );
@@ -510,16 +514,41 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     }
 
     async function loadDraft() {
+      let localMinimumSalary: number | null = null;
+      try {
+        const raw = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<JobPostDraft>;
+          if (typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)) {
+            localMinimumSalary = parsed.minimumSalary;
+          }
+        }
+      } catch {
+        // ignore local draft parse errors
+      }
+
       try {
         const res = await fetch("/api/client/job-post/get");
         if (res.ok) {
           const body = (await res.json()) as { draft: JobPostDraft | null };
           if (!cancelled && body.draft) {
-            applyDraftFromJobPostShape(body.draft);
+            const dbMinimumSalary =
+              typeof body.draft.minimumSalary === "number" && Number.isFinite(body.draft.minimumSalary)
+                ? body.draft.minimumSalary
+                : null;
+            const mergedDraft: JobPostDraft = {
+              ...body.draft,
+              minimumSalary:
+                dbMinimumSalary !== null && dbMinimumSalary > 0
+                  ? dbMinimumSalary
+                  : (localMinimumSalary ?? 0),
+            };
+
+            applyDraftFromJobPostShape(mergedDraft);
             try {
               window.localStorage.setItem(
                 JOB_POST_DRAFT_STORAGE_KEY,
-                JSON.stringify(body.draft),
+                JSON.stringify(mergedDraft),
               );
             } catch {
               // non-critical
@@ -551,6 +580,7 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
               timelineEstimate: parsed.timelineEstimate,
               deliverables: parsed.deliverables,
               budget: parsed.budget,
+              minimumSalary: typeof parsed.minimumSalary === "number" ? parsed.minimumSalary : 0,
               skills: normalizeJobPostSkills(parsed.skills),
             });
           }
@@ -680,6 +710,7 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
       timelineEstimate,
       deliverables: deliverables.trim(),
       budget,
+      minimumSalary: minimumSalary ?? 0,
       skills,
     };
 
@@ -1158,7 +1189,7 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
                             <input
                               type="number"
                               min={BUDGET_MIN}
-                              value={budget || ""}
+                              value={budget !== undefined && budget !== null ? budget : ""}
                               onChange={(e) => {
                                 const raw = e.target.value;
                                 if (raw === "") {
@@ -1171,6 +1202,9 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
                               onBlur={(e) => {
                                 const val = parseInt(e.target.value, 10);
                                 if (Number.isNaN(val) || val < BUDGET_MIN) setBudget(BUDGET_MIN);
+                              }}
+                              onWheel={(e) => {
+                                (e.target as HTMLInputElement).blur();
                               }}
                               className="w-full bg-transparent p-0 text-center font-sans text-2xl font-bold text-black outline-none outline-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             />
@@ -1185,6 +1219,40 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
                             In case of any dissatisfaction with a student&apos;s performance, your money will be fully refunded to you by us.
                           </p>
                         </aside>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="job-post-min-salary" className="block text-2xl font-semibold text-black">Minimum Salary for Candidates</label>
+                      <p className="text-[11px] text-[#7e8f4f]">
+                        Specify the minimum salary you are offering to candidates working on this project.
+                      </p>
+                      <div className="flex items-center rounded-lg border border-black/25 bg-white shadow-sm shadow-black/30 w-full max-w-[300px]">
+                        <span className="px-3 font-sans text-lg font-medium text-black/60">₹</span>
+                        <input
+                          id="job-post-min-salary"
+                          type="number"
+                          min="0"
+                          value={minimumSalary ? minimumSalary : ""}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setMinimumSalary(null);
+                              return;
+                            }
+                            const val = parseInt(raw, 10);
+                            setMinimumSalary(Number.isNaN(val) ? null : Math.max(0, val));
+                          }}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (Number.isNaN(val) || val < 0) setMinimumSalary(null);
+                          }}
+                          onWheel={(e) => {
+                            (e.target as HTMLInputElement).blur();
+                          }}
+                          placeholder="Enter minimum salary"
+                          className="flex-1 bg-transparent p-3 font-sans text-lg font-semibold text-black outline-none placeholder:text-black/40 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        />
                       </div>
                     </div>
 
