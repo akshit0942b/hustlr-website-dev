@@ -63,16 +63,24 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
   const [draft, setDraft] = useState<JobPostDraft | null>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile>(DEFAULT_CLIENT_PROFILE);
   const [isPosting, setIsPosting] = useState(false);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(true);
 
   // Load draft — try DB first, fall back to localStorage
   useEffect(() => {
+    if (!router.isReady) return;
+
     async function loadDraft() {
       try {
-        const res = await fetch("/api/client/job-post/get");
+        const fetchUrl = router.query.id
+          ? `/api/client/job-post/get?id=${router.query.id}`
+          : "/api/client/job-post/get";
+        
+        const res = await fetch(fetchUrl);
         if (res.ok) {
           const { draft: dbDraft } = await res.json();
           if (dbDraft) {
             setDraft(dbDraft as JobPostDraft);
+            setIsLoadingDraft(false);
             return;
           }
         }
@@ -82,7 +90,10 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
 
       // Fallback to localStorage
       const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-      if (!rawDraft) return;
+      if (!rawDraft) {
+        setIsLoadingDraft(false);
+        return;
+      }
       try {
         const parsed = JSON.parse(rawDraft) as Partial<JobPostDraft>;
         if (
@@ -112,10 +123,11 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
       } catch {
         // Keep null draft on parse failure.
       }
+      setIsLoadingDraft(false);
     }
 
     void loadDraft();
-  }, []);
+  }, [router.isReady, router.query.id]);
 
   // Load client profile — try DB first, fall back to localStorage
   useEffect(() => {
@@ -189,28 +201,21 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
   const displayTimeline = useMemo(() => {
     const t = draft?.timelineEstimate || "4 weeks";
     
-    const yMatch = t.match(/([0-9\+]+)\s*Year/i);
-    const y = yMatch ? `${yMatch[1]} Year${yMatch[1] === "1" ? "" : "s"}` : "";
+    const yMatch = t.match(/([0-9]+)\s*Year/i);
+    const mMatch = t.match(/([0-9]+)\s*Month/i);
+    const wMatch = t.match(/([0-9]+)\s*Week/i);
     
-    const mMatch = t.match(/([0-9\+]+)\s*Month/i);
-    const m = mMatch ? `${mMatch[1]} Month${mMatch[1] === "1" ? "" : "s"}` : "";
-    
-    const wMatch = t.match(/([0-9\+]+)\s*Week/i);
-    const w = wMatch ? `${wMatch[1]} Week${wMatch[1] === "1" ? "" : "s"}` : "";
-    
-    if (!y && !m && !w) return t;
+    // If it doesn't match our strict expected pattern (e.g., might be legacy "3 to 6 months"),
+    // we only run the total calculation if we actually extracted something.
+    if (!yMatch && !mMatch && !wMatch) return t;
 
-    const upperParts = [y, m].filter(Boolean);
-    const weekPart = w;
+    let totalWeeks = 0;
+    if (yMatch) totalWeeks += parseInt(yMatch[1], 10) * 52;
+    if (mMatch) totalWeeks += parseInt(mMatch[1], 10) * 4;
+    if (wMatch) totalWeeks += parseInt(wMatch[1], 10);
 
-    if (upperParts.length > 0 && weekPart) {
-      return upperParts.join(", ") + "\n& " + weekPart;
-    } else if (upperParts.length > 0) {
-      return upperParts.join(" & ");
-    } else if (weekPart) {
-      return weekPart;
-    }
-    return t;
+    // Provide the unified timeline in weeks
+    return `${totalWeeks} Week${totalWeeks === 1 ? "" : "s"}`;
   }, [draft?.timelineEstimate]);
 
   return (
@@ -222,7 +227,14 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
       <Nav />
 
       <main className="min-h-screen bg-[#f4f4f4] pt-16 md:pt-20">
-        {!draft ? (
+        {isLoadingDraft ? (
+          <section className="mx-auto flex min-h-[72vh] w-full max-w-[1200px] flex-col items-center justify-center px-6 text-center">
+            <div className="mt-8 flex flex-col items-center gap-2">
+              <span className="h-8 w-8 animate-spin rounded-full border-4 border-black/20 border-t-black/70"></span>
+              <p className="mt-4 text-[13px] font-sans font-semibold tracking-wide text-black/60 uppercase">Loading preview...</p>
+            </div>
+          </section>
+        ) : !draft ? (
           <section className="mx-auto flex min-h-[72vh] w-full max-w-[1200px] flex-col items-center justify-center px-6 text-center">
             <h1 className="font-serif text-4xl font-normal tracking-tight text-black/90 sm:text-5xl">
               No Job Post Draft Found
@@ -333,7 +345,7 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
                   <div className="mt-8 min-w-0 space-y-5 font-sans text-sm text-black/90">
                     <section className="min-w-0">
                       <h3 className="font-ovo text-3xl text-black">Description</h3>
-                      <p className="mt-2 max-w-full leading-relaxed text-black/80 break-words [overflow-wrap:anywhere]">
+                      <p className="mt-2 max-w-full whitespace-pre-wrap leading-relaxed text-black/80 break-words [overflow-wrap:anywhere]">
                         {draft.description}
                       </p>
                     </section>
@@ -371,7 +383,7 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
 
                     <section className="min-w-0">
                       <h3 className="font-ovo text-3xl text-black">About Us</h3>
-                      <p className="mt-2 max-w-full leading-relaxed text-black/80 break-words [overflow-wrap:anywhere]">
+                      <p className="mt-2 max-w-full whitespace-pre-wrap leading-relaxed text-black/80 break-words [overflow-wrap:anywhere]">
                         {clientProfile.description || "No company description added yet."}
                       </p>
                     </section>
