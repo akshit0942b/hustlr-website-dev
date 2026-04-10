@@ -1,5 +1,5 @@
 import Head from "next/head";
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import Nav from "@/src/components/Nav";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LogOut } from "lucide-react";
 import { toast } from "sonner";
+import { CLIENT_PROFILE_STORAGE_KEY } from "@/src/lib/clientTypes";
+import { getClientEmailFromSSP } from "@/src/lib/clientAuthUtils";
+import { GetServerSideProps } from "next";
+import { createClient } from "@/src/lib/supabase/auth/component";
 
 const INDUSTRY_OPTIONS = [
   "Technology",
@@ -36,9 +41,19 @@ const COUNTRY_OPTIONS = ["India", "United States", "United Kingdom", "Singapore"
 const LOADER_SEGMENTS = Array.from({ length: 12 }, (_, index) => index);
 
 const URL_REGEX = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/.*)?$/i;
-const CLIENT_PROFILE_STORAGE_KEY = "hustlr.client.profile";
 
-export default function ClientOnboardingPage() {
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const clientEmail = getClientEmailFromSSP(context);
+  if (!clientEmail) {
+    return {
+      redirect: { destination: "/get-started/client/verify", permanent: false },
+    };
+  }
+
+  return { props: { clientEmail } };
+};
+
+export default function ClientOnboardingPage({ clientEmail }: { clientEmail: string }) {
   const router = useRouter();
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
@@ -49,6 +64,25 @@ export default function ClientOnboardingPage() {
   const [description, setDescription] = useState("");
   const [studentWorkReason, setStudentWorkReason] = useState("");
   const [viewState, setViewState] = useState<"form" | "loading" | "success">("form");
+  const [isCompanyLocked, setIsCompanyLocked] = useState(false);
+  const supabaseClientRef = useRef<ReturnType<typeof createClient> | null>(null);
+
+  function getSupabaseClient() {
+    if (!supabaseClientRef.current) {
+      supabaseClientRef.current = createClient();
+    }
+    return supabaseClientRef.current;
+  }
+
+  useEffect(() => {
+    const supabaseClient = getSupabaseClient();
+    supabaseClient.auth.getUser().then(({ data, error }) => {
+      if (!error && data?.user?.user_metadata?.companyName) {
+        setCompanyName(data.user.user_metadata.companyName);
+        setIsCompanyLocked(true);
+      }
+    });
+  }, []);
 
   function validateOnboardingForm() {
     if (!companyName.trim()) return "Company Name is required.";
@@ -80,22 +114,46 @@ export default function ClientOnboardingPage() {
       return;
     }
 
-    window.localStorage.setItem(
-      CLIENT_PROFILE_STORAGE_KEY,
-      JSON.stringify({
-        companyName: companyName.trim(),
-        website: website.trim(),
-        linkedin: linkedin.trim(),
-        industry,
-        companySize,
-        country,
-        description: description.trim(),
-        studentWorkReason: studentWorkReason.trim(),
-      }),
-    );
+    const profileData = {
+      companyName: companyName.trim(),
+      website: website.trim(),
+      linkedin: linkedin.trim(),
+      industry,
+      companySize,
+      country,
+      description: description.trim(),
+      studentWorkReason: studentWorkReason.trim(),
+    };
+
+    // Save to localStorage as a fast fallback
+    try {
+      window.localStorage.setItem(CLIENT_PROFILE_STORAGE_KEY, JSON.stringify(profileData));
+    } catch {
+      // non-critical; continue
+    }
 
     setViewState("loading");
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    // Persist to database
+    try {
+      const res = await fetch("/api/client/profile/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...profileData, email: clientEmail }),
+      });
+
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: "Unknown error" }));
+        toast.error(error || "Failed to save profile. Please try again.");
+        setViewState("form");
+        return;
+      }
+    } catch {
+      toast.error("Network error saving profile. Please try again.");
+      setViewState("form");
+      return;
+    }
+
     setViewState("success");
   }
 
@@ -108,7 +166,7 @@ export default function ClientOnboardingPage() {
 
         <Nav />
 
-        <main className="min-h-screen bg-[#f4f4f4] pt-16 md:pt-20">
+        <main className="min-h-screen bg-white pt-16 md:pt-20">
           <section className="mx-auto flex min-h-[70vh] w-full max-w-2xl flex-col items-center justify-center px-6 text-center">
             <h1 className="font-serif text-5xl font-normal tracking-tight text-black/90 sm:text-6xl">
               Your Account Is Almost Ready..
@@ -148,17 +206,10 @@ export default function ClientOnboardingPage() {
 
         <Nav />
 
-        <main className="min-h-screen bg-[#f4f4f4] pt-16 md:pt-20">
+        <main className="min-h-screen bg-white pt-16 md:pt-20">
           <section className="mx-auto flex min-h-[72vh] w-full max-w-[1200px] flex-col items-center justify-center px-6 text-center">
             <div className="flex items-center gap-4">
-              <h1
-                className="text-4xl tracking-tight text-black/90 sm:text-5xl"
-                style={{
-                  fontFamily: 'var(--font-the-seasons), "FONTSPRING DEMO - The Seasons", serif',
-                  fontWeight: 700,
-                  fontStyle: "normal",
-                }}
-              >
+              <h1 className="font-serif text-4xl font-bold tracking-tight text-black/90 sm:text-5xl">
                 Your Hustlr Account Is Ready
               </h1>
               <img
@@ -169,7 +220,7 @@ export default function ClientOnboardingPage() {
             </div>
 
             <p className="mt-16 text-[1.7rem] font-semibold leading-tight text-[#58b7ba] sm:text-[1.95rem]">
-              You're Ready to Post Your First Project
+              You&apos;re Ready to Post Your First Project
             </p>
             <p className="mt-4 whitespace-nowrap text-[1.35rem] font-semibold leading-tight text-black/85 sm:text-[1.5rem]">
               You can now post a project and discover top student talent matched to your requirements.
@@ -179,27 +230,17 @@ export default function ClientOnboardingPage() {
               <Button
                 type="button"
                 onClick={() => router.push("/get-started/client/job-post")}
-                className="h-11 rounded-2xl bg-black text-base text-white hover:bg-black/90"
-                style={{
-                  fontFamily:
-                    '"FONTSPRING DEMO - TT Commons Pro DemiBold", "TT Commons Pro", "Poppins", sans-serif',
-                  fontWeight: 600,
-                  fontStyle: "normal",
-                }}
+                className="h-11 rounded-2xl bg-black text-base font-semibold text-white hover:bg-black/90"
               >
                 Post My First Project
               </Button>
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => router.push("/admin")}
-                className="h-11 rounded-2xl border-black/20 bg-transparent text-base text-black hover:bg-black/5"
-                style={{
-                  fontFamily:
-                    '"FONTSPRING DEMO - TT Commons Pro DemiBold", "TT Commons Pro", "Poppins", sans-serif',
-                  fontWeight: 600,
-                  fontStyle: "normal",
+                onClick={() => {
+                  void router.push("/get-started/client/dashboard");
                 }}
+                className="h-11 rounded-2xl border-black/20 bg-transparent text-base font-semibold text-black hover:bg-black/5"
               >
                 Go To Dashboard
               </Button>
@@ -218,12 +259,25 @@ export default function ClientOnboardingPage() {
 
       <Nav />
 
-      <main className="min-h-screen bg-[#f4f4f4] pt-16 md:pt-20">
+      <main className="min-h-screen bg-white pt-16 md:pt-20">
         <section className="px-6 py-10 sm:px-10 md:px-14 lg:px-24">
           <div className="mx-auto w-full max-w-2xl font-ovo text-black">
-            <h1 className="font-serif text-4xl font-normal tracking-tight text-black/90">
-              Tell Us About Your Business
-            </h1>
+            <div className="flex items-start justify-between gap-4">
+              <h1 className="font-serif text-4xl font-normal tracking-tight text-black/90">
+                Tell Us About Your Business
+              </h1>
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch("/api/client/auth/logout", { method: "POST" });
+                  void router.push("/get-started/client/verify");
+                }}
+                className="mt-1 flex shrink-0 items-center gap-1.5 text-sm font-sans font-medium text-black/50 hover:text-black/80 transition-colors"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </div>
             <p className="mt-6 text-[1.4rem] font-semibold leading-tight text-black/85">
               Help students understand who they will be working with
             </p>
@@ -233,40 +287,46 @@ export default function ClientOnboardingPage() {
 
             <form onSubmit={onSubmit} className="mt-12 space-y-7">
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Company Name</label>
+                <label htmlFor="onboarding-company-name" className="block text-sm font-semibold text-black">Company Name</label>
                 <Input
+                  id="onboarding-company-name"
                   required
                   value={companyName}
+                  disabled={isCompanyLocked}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  className="h-8 rounded-md border border-black/25 bg-slate-50 text-sm font-sans text-black"
+                  className={`border border-black/25 p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm ${
+                    isCompanyLocked ? "bg-black/5 cursor-not-allowed opacity-80" : ""
+                  }`}
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Company Website</label>
+                <label htmlFor="onboarding-website" className="block text-sm font-semibold text-black">Company Website</label>
                 <Input
+                  id="onboarding-website"
                   required
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
-                  className="h-8 rounded-md border border-black/25 bg-slate-50 text-sm font-sans text-black"
+                  className="border border-black/25 p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Company LinkedIn</label>
+                <label htmlFor="onboarding-linkedin" className="block text-sm font-semibold text-black">Company LinkedIn</label>
                 <Input
+                  id="onboarding-linkedin"
                   required
                   value={linkedin}
                   onChange={(e) => setLinkedin(e.target.value)}
-                  className="h-8 rounded-md border border-black/25 bg-slate-50 text-sm font-sans text-black"
+                  className="border border-black/25 p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Industry</label>
+                <label htmlFor="onboarding-industry" className="block text-sm font-semibold text-black">Industry</label>
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">
                   <Select value={industry} onValueChange={setIndustry}>
-                    <SelectTrigger className="h-8 w-full md:w-[220px] rounded-md border border-black/25 bg-slate-50 text-sm font-sans text-black">
+                    <SelectTrigger className="border border-black/25 p-2 w-full md:w-[220px] font-sans shadow-sm shadow-black/30 text-black text-sm">
                       <SelectValue/>
                     </SelectTrigger>
                     <SelectContent>
@@ -281,10 +341,10 @@ export default function ClientOnboardingPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Company Size</label>
+                <label htmlFor="onboarding-company-size" className="block text-sm font-semibold text-black">Company Size</label>
                 <div className="flex flex-col gap-3 md:flex-row md:items-center">
                   <Select value={companySize} onValueChange={setCompanySize}>
-                    <SelectTrigger className="h-8 w-full md:w-[220px] rounded-md border border-black/25 bg-slate-50 text-sm font-sans text-black">
+                    <SelectTrigger className="border border-black/25 p-2 w-full md:w-[220px] font-sans shadow-sm shadow-black/30 text-black text-sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -299,9 +359,9 @@ export default function ClientOnboardingPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Country</label>
+                <label htmlFor="onboarding-country" className="block text-sm font-semibold text-black">Country</label>
                 <Select value={country} onValueChange={setCountry}>
-                  <SelectTrigger className="h-8 w-full md:w-[220px] rounded-md border border-black/25 bg-slate-50 text-sm font-sans text-black">
+                  <SelectTrigger className="border border-black/25 p-2 w-full md:w-[220px] font-sans shadow-sm shadow-black/30 text-black text-sm">
                     <SelectValue/>
                   </SelectTrigger>
                   <SelectContent>
@@ -316,29 +376,29 @@ export default function ClientOnboardingPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <label className="block text-sm font-semibold text-black">Company Description</label>
+                  <label htmlFor="onboarding-description" className="block text-sm font-semibold text-black">Company Description</label>
                   <span className="text-xs text-black/55">Word limit: 50</span>
                 </div>
                 <Textarea
+                  id="onboarding-description"
                   required
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder={`Briefly explain what your company does
-Ex: We are a fintech startup building tools that help small businesses manage payments.`}
+                  placeholder={`Ex: We are a fintech startup building tools that help small businesses manage payments.`}
                   rows={3}
-                  className="min-h-[84px] resize-none rounded-md border border-black/25 bg-slate-50 py-2 text-sm font-sans text-black"
+                  className="min-h-[84px] resize-none border border-black/25 p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="block text-sm font-semibold text-black">Why should students work with you?</label>
+                <label htmlFor="onboarding-student-work-reason" className="block text-sm font-semibold text-black">Why should students work with you?</label>
                 <Textarea
+                  id="onboarding-student-work-reason"
                   value={studentWorkReason}
                   onChange={(e) => setStudentWorkReason(e.target.value)}
-                  placeholder={`Share what makes your company a great place for students to work.
-Ex: Students get ownership, mentorship from senior team members, and real impact on live projects.`}
+                  placeholder={`Ex: Students get ownership, mentorship from senior team members, and real impact on live projects.`}
                   rows={3}
-                  className="min-h-[84px] resize-none rounded-md border border-black/25 bg-slate-50 py-2 text-sm font-sans text-black"
+                  className="min-h-[84px] resize-none border border-black/25 p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm"
                 />
               </div>
 

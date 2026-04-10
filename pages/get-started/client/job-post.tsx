@@ -1,4 +1,5 @@
 import Head from "next/head";
+import { motion } from "framer-motion";
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import Nav from "@/src/components/Nav";
@@ -20,16 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, ChevronsUpDown, Loader, Plus, X } from "lucide-react";
+import { Check, ChevronsUpDown, Loader, LogOut, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/src/lib/utils";
-
-type SkillLevel = "Required" | "Good to have";
-
-type SkillItem = {
-  name: string;
-  level: SkillLevel;
-};
+import { JOB_POST_DRAFT_STORAGE_KEY } from "@/src/lib/clientTypes";
+import type { SkillLevel, SkillItem, JobPostDraft } from "@/src/lib/clientTypes";
+import { getClientEmailFromSSP } from "@/src/lib/clientAuthUtils";
+import { supabaseAdmin } from "@/src/lib/supabase-admin";
+import { GetServerSideProps } from "next";
 
 const PROJECT_CATEGORIES = [
   "Web Development",
@@ -296,41 +295,142 @@ function doesSkillMatchQuery(skill: string, query: string) {
 }
 
 const LEVEL_OPTIONS: SkillLevel[] = ["Required", "Good to have"];
+const TIMELINE_OPTIONS = [
+  "Less than 1 week",
+  "1 to 2 weeks",
+  "2 to 4 weeks",
+  "1 to 2 months",
+  "3 to 6 months",
+  "6 months to 1 year",
+  "More than 1 year"
+];
 const BUDGET_MIN = 0;
-const BUDGET_MAX = 80000;
+/** Slider only — amounts above this can be typed in the number field. */
+const BUDGET_SLIDER_MAX = 80000;
 const BUDGET_STEP = 500;
 const PREVIEW_DELAY_MS = 1800;
 const PROJECT_SUBMITTED_REDIRECT_DELAY_MS = 2500;
 const MAX_SKILLS = 20;
-const JOB_POST_DRAFT_STORAGE_KEY = "hustlr.client.jobPostDraft";
 
-type JobPostDraft = {
-  title: string;
-  category: string;
-  description: string;
-  timelineEstimate: string;
-  deliverables: string;
-  budget: number;
-  skills: SkillItem[];
+/** Inverse of saveDraftToStorage timeline string (handles "Year(s)", "Month(s)", "Week(s)", multiline). */
+function parseTimelineEstimate(estimate: string): {
+  years: string;
+  months: string;
+  weeks: string;
+} {
+  const flat = (estimate || "").replace(/\s+/g, " ").trim();
+
+  const yMatch = flat.match(/(5\+|\d+)\s+Years?/i);
+  let years = "0";
+  if (yMatch) {
+    const v = yMatch[1];
+    if (v === "5+") years = "5+";
+    else if (v === "5") years = "5+";
+    else if (/^[0-4]$/.test(v)) years = v;
+  }
+
+  const mMatch = flat.match(/(\d+)\s+Months?/i);
+  let months = "0";
+  if (mMatch) {
+    const n = parseInt(mMatch[1], 10);
+    if (!Number.isNaN(n) && n >= 0 && n <= 11) months = String(n);
+  }
+
+  const wMatch = flat.match(/(\d+)\s+Weeks?/i);
+  let weeks = "0";
+  if (wMatch) {
+    const n = parseInt(wMatch[1], 10);
+    if (!Number.isNaN(n) && n >= 0 && n <= 4) weeks = String(n);
+  }
+
+  return { years, months, weeks };
+}
+
+function normalizeJobPostSkills(raw: unknown): SkillItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (item): item is SkillItem =>
+      typeof item?.name === "string" &&
+      (item?.level === "Required" || item?.level === "Good to have"),
+  );
+}
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const clientEmail = getClientEmailFromSSP(context);
+  if (!clientEmail) {
+    return {
+      redirect: { destination: "/get-started/client/verify", permanent: false },
+    };
+  }
+
+  // Ensure client has completed onboarding — required for FK integrity on job_posts
+  const { data: profile } = await supabaseAdmin
+    .from("client_profiles")
+    .select("email")
+    .eq("email", clientEmail)
+    .maybeSingle();
+
+  if (!profile) {
+    return {
+      redirect: { destination: "/get-started/client/onboarding", permanent: false },
+    };
+  }
+
+  return { props: { clientEmail } };
 };
 
-export default function ClientJobPostPage() {
+const HelperBox = () => {
+  const [show, setShow] = useState(false);
+  const [text, setText] = useState("");
+  const fullText = "Our AI Job Post Helper will optimize your job post for tone, grammar, and phrasing. Fill in the basic details and leave the rest to us :)";
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setShow(true), 500);
+    return () => clearTimeout(t1);
+  }, []);
+
+  useEffect(() => {
+    if (show) {
+      let i = 0;
+      const t2 = setInterval(() => {
+        i++;
+        setText(fullText.slice(0, i));
+        if (i === fullText.length) clearInterval(t2);
+      }, 15);
+      return () => clearInterval(t2);
+    }
+  }, [show]);
+
+  return (
+    <motion.aside
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: show ? 1 : 0, scale: show ? 1 : 0.95 }}
+      transition={{ duration: 0.4 }}
+      className="relative h-fit w-full rounded-tr-[10px] rounded-br-[10px] rounded-bl-[10px] bg-[#b9cc84] px-8 py-6 font-sans text-[16px] font-medium leading-[1.24] text-[#5d742d] md:mt-8 md:w-[385px] md:justify-self-end before:absolute before:-left-[26px] before:top-0 before:h-[26px] before:w-[26px] before:translate-x-px before:bg-[#b9cc84] before:[clip-path:polygon(100%_0,100%_100%,0_0)] before:content-['']"
+    >
+      {text}
+      <span className={show && text.length < fullText.length ? "animate-pulse" : "hidden"}>|</span>
+    </motion.aside>
+  );
+};
+
+export default function ClientJobPostPage({ clientEmail }: { clientEmail: string }) {
   const router = useRouter();
   const [view, setView] = useState<"form" | "loading" | "submitted">("form");
   const [step, setStep] = useState<1 | 2>(1);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
-  const [timelineEstimate, setTimelineEstimate] = useState("");
+  const [timelineYears, setTimelineYears] = useState("0");
+  const [timelineMonths, setTimelineMonths] = useState("0");
+  const [timelineWeeks, setTimelineWeeks] = useState("0");
   const [deliverables, setDeliverables] = useState("");
   const [budget, setBudget] = useState(20000);
-  const [selectedSkill, setSelectedSkill] = useState("");
-  const [skillSearchQuery, setSkillSearchQuery] = useState("");
-  const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false);
-  const [isRequirementDropdownOpen, setIsRequirementDropdownOpen] = useState(false);
-  const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
+  const [openSkillPopovers, setOpenSkillPopovers] = useState<Record<number, boolean>>({});
+  const [skillSearchQueries, setSkillSearchQueries] = useState<Record<number, string>>({});
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(true);
   const routeTimerRef = useRef<number | null>(null);
   const submittedTimerRef = useRef<number | null>(null);
 
@@ -346,31 +446,128 @@ export default function ClientJobPostPage() {
   }, []);
 
   useEffect(() => {
-    const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-    if (!rawDraft) return;
+    if (!router.isReady) return;
 
-    try {
-      const parsed = JSON.parse(rawDraft) as Partial<JobPostDraft>;
-      if (typeof parsed.title === "string") setTitle(parsed.title);
-      if (typeof parsed.category === "string" && isValidProjectCategory(parsed.category)) {
-        setCategory(parsed.category);
+    const q = router.query;
+    const wantNewDraft =
+      q.new === "1" || (Array.isArray(q.new) && q.new[0] === "1");
+    const fromReview =
+      q.from === "review" ||
+      (Array.isArray(q.from) && q.from[0] === "review");
+    const resumeDraft =
+      q.resume === "1" ||
+      (Array.isArray(q.resume) && q.resume[0] === "1");
+    const shouldHydrate = fromReview || resumeDraft;
+
+    function resetToFreshForm() {
+      try {
+        window.localStorage.removeItem(JOB_POST_DRAFT_STORAGE_KEY);
+      } catch {
+        // ignore
       }
-      if (typeof parsed.description === "string") setDescription(parsed.description);
-      if (typeof parsed.timelineEstimate === "string") setTimelineEstimate(parsed.timelineEstimate);
-      if (typeof parsed.deliverables === "string") setDeliverables(parsed.deliverables);
-      if (typeof parsed.budget === "number") setBudget(parsed.budget);
-      if (Array.isArray(parsed.skills)) {
-        const validSkills = parsed.skills.filter(
-          (item): item is SkillItem =>
-            typeof item?.name === "string" &&
-            (item?.level === "Required" || item?.level === "Good to have"),
-        );
-        setSkills(validSkills);
-      }
-    } catch {
-      // Keep defaults if parsing fails.
+      setTitle("");
+      setCategory("");
+      setDescription("");
+      setTimelineYears("0");
+      setTimelineMonths("0");
+      setTimelineWeeks("0");
+      setDeliverables("");
+      setBudget(20000);
+      setSkills([]);
+      setOpenSkillPopovers({});
+      setSkillSearchQueries({});
+      setStep(1);
+      setIsLoadingDraft(false);
     }
-  }, []);
+
+    // Explicit new, or any entry that is not Edit-from-review / resume-draft
+    if (wantNewDraft || !shouldHydrate) {
+      resetToFreshForm();
+      return;
+    }
+
+    let cancelled = false;
+
+    function applyDraftFromJobPostShape(d: JobPostDraft) {
+      setTitle(typeof d.title === "string" ? d.title : "");
+      const cat = typeof d.category === "string" ? d.category : "";
+      setCategory(isValidProjectCategory(cat) ? cat : "");
+      setDescription(typeof d.description === "string" ? d.description : "");
+      setDeliverables(typeof d.deliverables === "string" ? d.deliverables : "");
+      const b = typeof d.budget === "number" && Number.isFinite(d.budget) ? d.budget : 0;
+      setBudget(Math.max(BUDGET_MIN, b));
+      const { years, months, weeks } = parseTimelineEstimate(
+        typeof d.timelineEstimate === "string" ? d.timelineEstimate : "",
+      );
+      setTimelineYears(years);
+      setTimelineMonths(months);
+      setTimelineWeeks(weeks);
+      setSkills(normalizeJobPostSkills(d.skills));
+      setOpenSkillPopovers({});
+      setSkillSearchQueries({});
+      // Always land on step 1 ("Post Your First Project"); step 2 fields stay prefilled when they continue.
+      setStep(1);
+    }
+
+    async function loadDraft() {
+      try {
+        const res = await fetch("/api/client/job-post/get");
+        if (res.ok) {
+          const body = (await res.json()) as { draft: JobPostDraft | null };
+          if (!cancelled && body.draft) {
+            applyDraftFromJobPostShape(body.draft);
+            try {
+              window.localStorage.setItem(
+                JOB_POST_DRAFT_STORAGE_KEY,
+                JSON.stringify(body.draft),
+              );
+            } catch {
+              // non-critical
+            }
+            return;
+          }
+        }
+      } catch {
+        // fall through to localStorage
+      }
+
+      const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
+      if (rawDraft && !cancelled) {
+        try {
+          const parsed = JSON.parse(rawDraft) as Partial<JobPostDraft>;
+          if (
+            typeof parsed.title === "string" &&
+            typeof parsed.category === "string" &&
+            typeof parsed.description === "string" &&
+            typeof parsed.timelineEstimate === "string" &&
+            typeof parsed.deliverables === "string" &&
+            typeof parsed.budget === "number" &&
+            Array.isArray(parsed.skills)
+          ) {
+            applyDraftFromJobPostShape({
+              title: parsed.title,
+              category: parsed.category,
+              description: parsed.description,
+              timelineEstimate: parsed.timelineEstimate,
+              deliverables: parsed.deliverables,
+              budget: parsed.budget,
+              skills: normalizeJobPostSkills(parsed.skills),
+            });
+          }
+        } catch {
+          // keep defaults
+        }
+      }
+    }
+
+    void loadDraft().finally(() => {
+      if (!cancelled) setIsLoadingDraft(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router.isReady, router.query.new, router.query.from, router.query.resume]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -383,11 +580,12 @@ export default function ClientJobPostPage() {
       }
 
       submittedTimerRef.current = window.setTimeout(() => {
-        void router.push("/admin");
+        void router.push("/get-started/client/dashboard");
         submittedTimerRef.current = null;
       }, PROJECT_SUBMITTED_REDIRECT_DELAY_MS);
     }
-  }, [router, router.isReady, router.query.view]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, router.query.view]);
 
   function scrollToTop() {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -413,93 +611,92 @@ export default function ClientJobPostPage() {
     goToStepOne();
   }
 
-  function addSkill() {
-    const normalized = selectedSkill.trim();
-    if (!normalized) {
-      toast.error("Please select a skill from the dropdown.");
+  function addNewSkillRow() {
+    if (!category) {
+      toast.error("Please select a project category before adding skills.");
       return;
     }
-
     if (skills.length >= MAX_SKILLS) {
-      toast.error("you can only add 20 skills for a project");
+      toast.error(`You can only add ${MAX_SKILLS} skills.`);
       return;
     }
+    setSkills((prev) => [...prev, { name: "", level: "Required" }]);
+  }
 
-    if (!skillLevel) {
-      toast.error("Please select the requirement level (Required or Good to have).");
-      return;
+  function updateSkillRow(index: number, field: "name" | "level", value: string) {
+    if (field === "name") {
+      const alreadyExists = skills.some(
+        (s, i) => i !== index && s.name.toLowerCase() === value.toLowerCase(),
+      );
+      if (alreadyExists) {
+        toast.error(`"${value}" is already added.`);
+        return;
+      }
     }
-
-    const alreadyExists = skills.some(
-      (skill) => skill.name.toLowerCase() === normalized.toLowerCase(),
-    );
-    if (alreadyExists) {
-      toast.error("This skill is already added.");
-      return;
-    }
-
-    setSkills((prev) => [...prev, { name: normalized, level: skillLevel }]);
-    setSelectedSkill("");
-    setSkillSearchQuery("");
-    setSkillLevel("");
+    setSkills((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
   }
 
   function onCategoryChange(nextCategory: string) {
     if (!isValidProjectCategory(nextCategory) || nextCategory === category) {
       return;
     }
-
     setCategory(nextCategory);
-    setSelectedSkill("");
-    setSkillSearchQuery("");
-    setIsSkillDropdownOpen(false);
+    setSkills([]);
+    setOpenSkillPopovers({});
+    setSkillSearchQueries({});
   }
 
   function removeSkill(index: number) {
     setSkills((prev) => prev.filter((_, i) => i !== index));
   }
 
-  function onSkillDropdownOpenChange(nextOpen: boolean) {
-    if (nextOpen && !category) {
-      toast.error("Select a project category first.");
-      setIsSkillDropdownOpen(false);
-      return;
-    }
-
-    setIsSkillDropdownOpen(nextOpen);
-  }
-
-  function onRequirementDropdownOpenChange(nextOpen: boolean) {
-    if (nextOpen && !selectedSkill) {
-      toast.error("Select the skill first.");
-      setIsRequirementDropdownOpen(false);
-      return;
-    }
-
-    setIsRequirementDropdownOpen(nextOpen);
-  }
-
-  function onRequirementLevelChange(value: string) {
-    if (!selectedSkill) {
-      toast.error("Select the skill first.");
-      return;
-    }
-
-    setSkillLevel(value as SkillLevel);
-  }
-
   function saveDraftToStorage() {
+    const upperParts = [
+      timelineYears !== "0" ? `${timelineYears} Year${timelineYears === "1" ? "" : "s"}` : "",
+      timelineMonths !== "0" ? `${timelineMonths} Month${timelineMonths === "1" ? "" : "s"}` : ""
+    ].filter(Boolean);
+    
+    const weekPart = timelineWeeks !== "0" ? `${timelineWeeks} Week${timelineWeeks === "1" ? "" : "s"}` : "";
+
+    let timelineEstimate = "";
+    const upperStr = upperParts.join(" & ");
+
+    if (upperStr && weekPart) {
+      timelineEstimate = `${upperStr}\n& ${weekPart}`;
+    } else if (upperStr) {
+      timelineEstimate = upperStr;
+    } else if (weekPart) {
+      timelineEstimate = weekPart;
+    }
+
     const draft: JobPostDraft = {
       title: title.trim(),
       category,
       description: description.trim(),
-      timelineEstimate: timelineEstimate.trim(),
+      timelineEstimate,
       deliverables: deliverables.trim(),
       budget,
       skills,
     };
 
-    window.localStorage.setItem(JOB_POST_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    try {
+      window.localStorage.setItem(JOB_POST_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    } catch {
+      // localStorage failure is non-critical; DB save will still happen
+    }
+
+    // Persist to DB in the background — fire and forget, errors are non-blocking
+    fetch("/api/client/job-post/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...draft, email: clientEmail }),
+    }).catch(() => {
+      // swallow — localStorage copy is the fallback
+    });
   }
 
   function validateStepOne() {
@@ -513,14 +710,19 @@ export default function ClientJobPostPage() {
       return "Project Description should have enough detail (at least 40 characters).";
     }
 
-    if (!skills.length) return "Please add at least one required skill.";
+    const validSkills = skills.filter((s) => s.name.trim() !== "");
+    if (!validSkills.length) return "Please add at least one required skill.";
+
+    if (skills.some((s) => !s.name.trim())) {
+      return "Please select a valid skill for all added rows, or remove the empty ones.";
+    }
 
     return null;
   }
 
   function validateStepTwo() {
-    if (!timelineEstimate.trim()) {
-      return "Please enter the estimated timeline (for example: 2 months or 3 weeks).";
+    if (timelineYears === "0" && timelineMonths === "0" && timelineWeeks === "0") {
+      return "Please select at least one numeric value for your estimated timeline.";
     }
 
     if (!deliverables.trim()) return "Please add expected deliverables.";
@@ -570,15 +772,6 @@ export default function ClientJobPostPage() {
 
   const formattedBudget = useMemo(() => new Intl.NumberFormat("en-IN").format(budget), [budget]);
 
-  const availableSkillOptions = useMemo(
-    () => SKILLS_BY_CATEGORY[category] ?? [],
-    [category],
-  );
-
-  const filteredSkillOptions = useMemo(
-    () => availableSkillOptions.filter((skill) => doesSkillMatchQuery(skill, skillSearchQuery)),
-    [availableSkillOptions, skillSearchQuery],
-  );
 
   return (
     <>
@@ -588,7 +781,7 @@ export default function ClientJobPostPage() {
 
       <Nav />
 
-      <main className="min-h-screen bg-[#f4f4f4] pt-16 md:pt-20">
+      <main className="min-h-screen bg-white pt-16 md:pt-20">
         {view === "loading" && (
           <section className="mx-auto flex min-h-[70vh] w-full max-w-6xl items-center justify-center px-6 py-10 sm:px-10 md:px-14 lg:px-20">
             <div className="max-w-[760px] text-center font-ovo text-black">
@@ -608,12 +801,7 @@ export default function ClientJobPostPage() {
           <section className="mx-auto flex min-h-[72vh] w-full max-w-[1200px] flex-col items-center justify-center px-6 text-center">
             <div className="flex items-center gap-3">
               <h1
-                className="text-4xl tracking-tight text-black/90 sm:text-5xl"
-                style={{
-                  fontFamily: 'var(--font-the-seasons), "FONTSPRING DEMO - The Seasons", serif',
-                  fontWeight: 700,
-                  fontStyle: "normal",
-                }}
+                className="font-serif text-4xl font-bold tracking-tight text-black/90 sm:text-5xl"
               >
                 Project Submitted
               </h1>
@@ -630,12 +818,21 @@ export default function ClientJobPostPage() {
             </div>
 
             <p className="mt-9 text-[1.35rem] font-semibold leading-tight text-black/80 sm:text-[1.55rem]">
-              Redirecting you to your dashboard to start finding students..
+              Redirecting you to your dashboard..
             </p>
           </section>
         )}
 
-        {view === "form" && (
+        {view === "form" && isLoadingDraft && (
+          <section className="mx-auto flex min-h-[50vh] w-full max-w-6xl items-center justify-center px-6 py-16 sm:px-10 md:px-14 lg:px-20">
+            <div className="flex flex-col items-center gap-3 text-center font-sans text-black/70">
+              <Loader className="h-10 w-10 animate-spin" />
+              <p className="text-sm font-medium">Loading your project draft…</p>
+            </div>
+          </section>
+        )}
+
+        {view === "form" && !isLoadingDraft && (
         <section className="mx-auto w-full max-w-6xl px-6 py-10 sm:px-10 md:px-14 lg:px-20">
           <div
             className={`grid grid-cols-1 gap-10 ${
@@ -643,9 +840,22 @@ export default function ClientJobPostPage() {
             }`}
           >
             <div className="w-full max-w-3xl font-ovo text-black">
-              <h1 className="font-serif text-4xl font-normal tracking-tight text-black/90">
-                Post Your First Project
-              </h1>
+              <div className="flex items-start justify-between gap-4">
+                <h1 className="font-serif text-4xl font-normal tracking-tight text-black/90">
+                  Post Your First Project
+                </h1>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await fetch("/api/client/auth/logout", { method: "POST" });
+                    void router.push("/get-started/client/verify");
+                  }}
+                  className="mt-1 flex shrink-0 items-center gap-1.5 text-sm font-sans font-medium text-black/50 hover:text-black/80 transition-colors"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </button>
+              </div>
               <p className="mt-3 text-[1.2rem] font-semibold text-[#58b7ba]">
                 Describe the project you want help with. We&apos;ll recommend the best student talent for the job.
               </p>
@@ -653,26 +863,27 @@ export default function ClientJobPostPage() {
                 {step === 1 ? (
                   <>
                     <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-black">Project Title</label>
+                      <label htmlFor="job-post-title" className="block text-base font-semibold text-black">Project Title</label>
                       <p className="text-[11px] text-[#7e8f4f]">
                         Keep the title clear and specific so students understand the project quickly.
                       </p>
                       <Input
+                        id="job-post-title"
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
-                        className="h-9 rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black"
+                        className="border border-black/25 bg-white p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-black">Project Category</label>
+                      <label htmlFor="job-post-category" className="block text-base font-semibold text-black">Project Category</label>
                       <p className="text-[11px] text-[#7e8f4f]">
                         This helps us match your project with students who have expertise in this area.
                       </p>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <Select value={category} onValueChange={onCategoryChange}>
-                          <SelectTrigger className="h-9 w-full rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black sm:w-[180px]">
-                            <SelectValue placeholder="project category" />
+                          <SelectTrigger className="border border-black/25 bg-white p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm sm:w-[180px]">
+                            <SelectValue placeholder="" />
                           </SelectTrigger>
                           <SelectContent>
                             {PROJECT_CATEGORIES.map((item) => (
@@ -686,122 +897,147 @@ export default function ClientJobPostPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-black">Project Description</label>
+                      <label htmlFor="job-post-description" className="block text-base font-semibold text-black">Project Description</label>
                       <p className="text-[11px] text-[#7e8f4f]">
                         Clear project descriptions attract better students.
                       </p>
                       <Textarea
+                        id="job-post-description"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         rows={5}
-                        placeholder={`Describe the project in detail.\n\nExample:\nWe are looking for a student developer to build a responsive landing page for our startup. The page should include a hero section, product overview, pricing section, and contact form. Students should be comfortable working with React and Tailwind CSS.`}
-                        className="min-h-[110px] resize-none rounded-md border border-black/20 bg-[#e9e9e9] py-2 text-sm font-sans text-black"
+                        placeholder={`Example:\nWe are looking for a student developer to build a responsive landing page for our startup. The page should include a hero section, product overview, pricing section, and contact form. Students should be comfortable working with React and Tailwind CSS.`}
+                        className="min-h-[110px] resize-none border border-black/25 bg-white p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm placeholder:text-black/40"
                       />
                     </div>
 
                     <div className="space-y-3">
-                      <label className="block text-sm font-semibold text-black">Required Skills</label>
+                      <label className="block text-base font-semibold text-black">Required Skills</label>
                       <p className="text-[11px] text-[#7e8f4f]">
                         Add the skills and their requirement for the project.
                       </p>
 
-                      {!!skills.length && (
-                        <div className="flex flex-wrap gap-2">
-                          {skills.map((skill, index) => (
-                            <div
-                              key={`${skill.name}-${index}`}
-                              className="inline-flex items-center gap-2 rounded-md bg-[#58b7ba]/25 px-3 py-1 text-xs font-semibold text-black"
-                            >
-                              <span>{skill.name}</span>
-                              <span className="text-black/55">{skill.level}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeSkill(index)}
-                                className="rounded p-[1px] text-black/60 transition-colors hover:bg-black/10 hover:text-black"
-                                aria-label={`Remove ${skill.name}`}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <div className="space-y-3 mt-4">
+                        {skills.map((skillItem, index) => {
+                          const query = skillSearchQueries[index] || "";
+                          const available = SKILLS_BY_CATEGORY[category] ?? [];
+                          const filtered = available.filter((skill) => doesSkillMatchQuery(skill, query));
 
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="flex flex-1 items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={addSkill}
-                            className="h-9 rounded-md border border-black/15 bg-[#e9e9e9] px-2 text-black hover:bg-[#dcdcdc]"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                          <Popover open={isSkillDropdownOpen} onOpenChange={onSkillDropdownOpenChange}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                role="combobox"
-                                aria-expanded={isSkillDropdownOpen}
-                                className="h-9 w-full justify-between rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black hover:bg-[#e1e1e1]"
-                              >
-                                <span className="truncate text-left">
-                                  {selectedSkill || (category ? "Search and select skill" : "Select category first")}
-                                </span>
-                                <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-70" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[350px] border-black/20 p-0" align="start">
-                              <Command shouldFilter={false}>
-                                <CommandInput
-                                  value={skillSearchQuery}
-                                  onValueChange={setSkillSearchQuery}
-                                  placeholder="Search skill (e.g. Nod)"
-                                />
-                                <CommandList>
-                                  <CommandEmpty>No skills found for your search.</CommandEmpty>
-                                  {filteredSkillOptions.map((skill) => (
-                                    <CommandItem
-                                      key={skill}
-                                      value={skill}
-                                      onSelect={() => {
-                                        setSelectedSkill(skill);
-                                        setIsSkillDropdownOpen(false);
-                                      }}
+                          return (
+                            <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-4">
+                              <div className="flex items-center rounded-lg bg-gray-100 p-1 pr-2 w-full sm:min-w-[240px] sm:w-auto">
+                                <Popover
+                                  open={openSkillPopovers[index] || false}
+                                  onOpenChange={(open) => {
+                                    if (open && !category) {
+                                      toast.error("Select a project category first.");
+                                      return;
+                                    }
+                                    setOpenSkillPopovers((prev) => ({ ...prev, [index]: open }));
+                                  }}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      role="combobox"
+                                      className={cn(
+                                        "flex h-9 w-full sm:w-auto items-center justify-between gap-2 rounded-md px-3 transition-colors",
+                                        skillItem.name
+                                          ? "bg-[#5FB3B3] text-white hover:bg-[#4d9a9a] hover:text-white"
+                                          : "bg-transparent text-gray-500",
+                                      )}
                                     >
-                                      <Check
-                                        className={cn(
-                                          "mr-2 h-4 w-4",
-                                          selectedSkill === skill ? "opacity-100" : "opacity-0",
-                                        )}
+                                      {skillItem.name || "Select Skill"}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[350px] p-0" align="start">
+                                    <Command shouldFilter={false}>
+                                      <CommandInput
+                                        placeholder="Search skill..."
+                                        value={query}
+                                        onValueChange={(val) =>
+                                          setSkillSearchQueries((prev) => ({ ...prev, [index]: val }))
+                                        }
                                       />
-                                      {skill}
-                                    </CommandItem>
-                                  ))}
-                                </CommandList>
-                              </Command>
-                            </PopoverContent>
-                          </Popover>
-                        </div>
+                                      <CommandList>
+                                        <CommandEmpty>No skill found.</CommandEmpty>
+                                        {filtered.map((skill) => {
+                                          const selectedSkills = skills
+                                            .filter((_, i) => i !== index)
+                                            .map((s) => s.name.toLowerCase());
+                                          if (selectedSkills.includes(skill.toLowerCase())) return null;
 
-                        <Select
-                          open={isRequirementDropdownOpen}
-                          onOpenChange={onRequirementDropdownOpenChange}
-                          value={skillLevel}
-                          onValueChange={onRequirementLevelChange}
-                        >
-                          <SelectTrigger className="h-9 w-full rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black sm:w-[190px]">
-                            <SelectValue placeholder="Choose Requirement" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {LEVEL_OPTIONS.map((level) => (
-                              <SelectItem key={level} value={level}>
-                                {level}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                                          return (
+                                            <CommandItem
+                                              key={skill}
+                                              value={skill}
+                                              onSelect={() => {
+                                                updateSkillRow(index, "name", skill);
+                                                setOpenSkillPopovers((prev) => ({ ...prev, [index]: false }));
+                                              }}
+                                            >
+                                              <Check
+                                                className={cn(
+                                                  "mr-2 h-4 w-4",
+                                                  skillItem.name === skill ? "opacity-100" : "opacity-0",
+                                                )}
+                                              />
+                                              {skill}
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+
+                              <div className="flex items-center gap-4">
+                                <Select
+                                  value={skillItem.level}
+                                  onValueChange={(value) => updateSkillRow(index, "level", value)}
+                                >
+                                  <SelectTrigger className="h-11 w-full sm:w-[180px] rounded-lg border-none bg-gray-100 font-normal text-gray-900 focus:ring-0">
+                                    <SelectValue placeholder="Choose Requirement" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {LEVEL_OPTIONS.map((level) => (
+                                      <SelectItem key={level} value={level} className="font-normal">
+                                        {level}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeSkill(index)}
+                                  className="h-8 w-8 rounded-md p-2 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700"
+                                >
+                                  <X className="h-5 w-5" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {skills.length < MAX_SKILLS && (
+                          <div className="flex items-center gap-4 pt-2">
+                            <Plus
+                              className="h-5 w-5 cursor-pointer text-gray-400 hover:text-black hidden sm:block"
+                              onClick={addNewSkillRow}
+                            />
+                            <Button
+                              type="button"
+                              onClick={addNewSkillRow}
+                              className="h-11 w-full sm:w-auto sm:min-w-[240px] justify-start rounded-lg bg-[#5FB3B3] px-4 py-2.5 font-normal text-white hover:bg-[#4d9a9a]"
+                            >
+                              Add Skill ({skills.length}/{MAX_SKILLS})
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -816,37 +1052,71 @@ export default function ClientJobPostPage() {
                   </>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      <label className="block text-2xl font-semibold text-black">Timeline</label>
-                      <p className="text-[11px] text-[#7e8f4f]">
-                        Choose the approximate time needed to complete the project.
-                      </p>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-2xl font-semibold text-black">Timeline</label>
+                        <p className="text-[11px] text-[#7e8f4f]">
+                          Choose the approximate time needed to complete the project.
+                        </p>
+                      </div>
+                      
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                        <div className="flex flex-col gap-1 w-full sm:w-[120px]">
+                          <label className="text-[12px] font-semibold text-black/80">Years</label>
+                          <Select value={timelineYears} onValueChange={setTimelineYears}>
+                            <SelectTrigger className="border border-black/25 bg-white p-2 font-sans shadow-sm shadow-black/30 text-black text-sm">
+                              <SelectValue placeholder="Years" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {["0", "1", "2", "3", "4", "5+"].map((item) => (
+                                <SelectItem key={item} value={item}>{item}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex flex-col gap-1 w-full sm:w-[120px]">
+                          <label className="text-[12px] font-semibold text-black/80">Months</label>
+                          <Select value={timelineMonths} onValueChange={setTimelineMonths}>
+                            <SelectTrigger className="border border-black/25 bg-white p-2 font-sans shadow-sm shadow-black/30 text-black text-sm">
+                              <SelectValue placeholder="Months" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 12 }, (_, i) => i.toString()).map((item) => (
+                                <SelectItem key={item} value={item}>{item}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="flex flex-col gap-1 w-full sm:w-[120px]">
+                          <label className="text-[12px] font-semibold text-black/80">Weeks</label>
+                          <Select value={timelineWeeks} onValueChange={setTimelineWeeks}>
+                            <SelectTrigger className="border border-black/25 bg-white p-2 font-sans shadow-sm shadow-black/30 text-black text-sm">
+                              <SelectValue placeholder="Weeks" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 5 }, (_, i) => i.toString()).map((item) => (
+                                <SelectItem key={item} value={item}>{item}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-black">Weeks</label>
-                      <Input
-                        value={timelineEstimate}
-                        onChange={(e) => setTimelineEstimate(e.target.value)}
-                        placeholder="e.g. 2 months or 3 weeks"
-                        className="h-9 w-[120px] rounded-md border border-black/20 bg-[#e9e9e9] text-sm font-sans text-black"
-                      />
-                      <p className="text-[11px] text-[#58b7ba]">
-                        Calculate the duration: eg 2 months or 3 weeks
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-2xl font-semibold text-black">Deliverables</label>
+                      <label htmlFor="job-post-deliverables" className="block text-2xl font-semibold text-black">Deliverables</label>
                       <p className="text-[11px] text-[#7e8f4f]">
                         List what the final outcome of the project should include.
                       </p>
                       <Textarea
+                        id="job-post-deliverables"
                         value={deliverables}
                         onChange={(e) => setDeliverables(e.target.value)}
                         rows={5}
-                        placeholder={`Example:\n- Fully responsive landing page\n- Clean codebase\n- Deployment on Vercel`}
-                        className="min-h-[110px] resize-none rounded-md border border-black/20 bg-[#e9e9e9] py-2 text-sm font-sans text-black"
+                        placeholder={`- Fully responsive landing page\n- Clean codebase\n- Deployment on Vercel`}
+                        className="min-h-[110px] resize-none border border-black/25 bg-white p-2 w-full font-sans shadow-sm shadow-black/30 text-black text-sm placeholder:text-black/40"
                       />
                     </div>
 
@@ -857,40 +1127,57 @@ export default function ClientJobPostPage() {
                       </p>
 
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_380px] md:items-start">
-                        <div className="pt-2">
-                          <div className="relative h-7">
-                            <div className="absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 bg-black/80" />
-                            <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-between px-[1px]">
-                              {Array.from({ length: 13 }).map((_, idx) => (
-                                <span
-                                  key={idx}
-                                  className={`block w-[2px] ${idx % 3 === 0 ? "h-4 bg-black/85" : "h-2.5 bg-black/75"}`}
-                                />
-                              ))}
-                            </div>
+                        <div className="rounded-xl border border-black/10 bg-white p-6 shadow-sm">
+                          <div className="relative pt-4">
+                            <input
+                              type="range"
+                              min={BUDGET_MIN}
+                              max={BUDGET_SLIDER_MAX}
+                              step={BUDGET_STEP}
+                              value={Math.min(Math.max(budget, BUDGET_MIN), BUDGET_SLIDER_MAX)}
+                              onChange={(e) => setBudget(Number(e.target.value))}
+                              className="h-2.5 w-full cursor-pointer appearance-none rounded-full outline-none transition-all [&::-moz-range-thumb]:h-6 [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-none [&::-moz-range-thumb]:bg-[#5FB3B3] [&::-moz-range-thumb]:shadow-md [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#5FB3B3] [&::-webkit-slider-thumb]:shadow-[0_2px_4px_rgba(0,0,0,0.2)] hover:[&::-webkit-slider-thumb]:scale-110 active:[&::-webkit-slider-thumb]:scale-95"
+                              style={{
+                                background: (() => {
+                                  const v = Math.min(Math.max(budget, BUDGET_MIN), BUDGET_SLIDER_MAX);
+                                  const pct =
+                                    ((v - BUDGET_MIN) / (BUDGET_SLIDER_MAX - BUDGET_MIN)) * 100;
+                                  return `linear-gradient(to right, #5FB3B3 ${pct}%, #e5e7eb ${pct}%)`;
+                                })(),
+                              }}
+                            />
                           </div>
 
-                          <input
-                            type="range"
-                            min={BUDGET_MIN}
-                            max={BUDGET_MAX}
-                            step={BUDGET_STEP}
-                            value={budget}
-                            onChange={(e) => setBudget(Number(e.target.value))}
-                            className="mt-1 h-2 w-full cursor-pointer accent-black"
-                          />
-
-                          <div className="mt-1 flex items-center justify-between text-[11px] font-sans text-black/70">
-                            <span>0</span>
-                            <span>Above 80,000</span>
+                          <div className="mt-2 flex items-center justify-between font-sans text-xs font-medium text-black/40">
+                            <span>₹0</span>
+                            <span>₹80,000+</span>
                           </div>
 
-                          <div className="mx-auto mt-2 w-[130px] rounded-[8px] bg-[#e2e2e2] py-1 text-center font-sans text-xl text-black/85">
-                            ₹{formattedBudget}
+                          <div className="mx-auto mt-6 flex w-[180px] items-center justify-center gap-1 rounded-xl border border-black/10 bg-gray-50 px-3 py-2 shadow-inner transition-colors focus-within:border-[#5FB3B3] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#5FB3B3]/20">
+                            <span className="font-sans text-xl font-medium text-black/60">₹</span>
+                            <input
+                              type="number"
+                              min={BUDGET_MIN}
+                              value={budget || ""}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                if (raw === "") {
+                                  setBudget(0);
+                                  return;
+                                }
+                                const val = parseInt(raw, 10);
+                                setBudget(Number.isNaN(val) ? 0 : val);
+                              }}
+                              onBlur={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (Number.isNaN(val) || val < BUDGET_MIN) setBudget(BUDGET_MIN);
+                              }}
+                              className="w-full bg-transparent p-0 text-center font-sans text-2xl font-bold text-black outline-none outline-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
                           </div>
                         </div>
 
-                        <aside className="relative rounded-tr-[6px] rounded-br-[6px] rounded-bl-[6px] bg-[#b9cc84] px-4 py-3 font-sans text-[12px] leading-[1.2] text-black/80 before:absolute before:-left-[20px] before:top-0 before:h-[20px] before:w-[20px] before:translate-x-px before:bg-[#b9cc84] before:[clip-path:polygon(100%_0,100%_100%,0_0)] before:content-['']">
+                        <aside className="rounded-xl bg-[#b9cc84] p-5 font-sans text-[12px] leading-[1.4] text-black/85 shadow-sm">
                           <p>
                             <strong>Remember</strong> that this amount must be deposited before your project begins with a student. This is to prevent fraudulent and unfair behaviours from the client side. Your payment will be held with us via escrow until project completion after which the money will be transferred to the student.
                           </p>
@@ -924,9 +1211,7 @@ export default function ClientJobPostPage() {
             </div>
 
             {step === 1 && (
-              <aside className="relative h-fit w-full rounded-tr-[10px] rounded-br-[10px] rounded-bl-[10px] bg-[#b9cc84] px-8 py-6 font-sans text-[16px] font-medium leading-[1.24] text-[#5d742d] md:mt-8 md:w-[385px] md:justify-self-end before:absolute before:-left-[26px] before:top-0 before:h-[26px] before:w-[26px] before:translate-x-px before:bg-[#b9cc84] before:[clip-path:polygon(100%_0,100%_100%,0_0)] before:content-['']">
-                Our AI Job Post Helper will optimize your job post for tone, grammar, and phrasing. Fill in the basic details and leave the rest to us!
-              </aside>
+              <HelperBox />
             )}
           </div>
         </section>
