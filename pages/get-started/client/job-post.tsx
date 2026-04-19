@@ -113,6 +113,43 @@ function normalizeJobPostSkills(raw: unknown): SkillItem[] {
   );
 }
 
+function parseStoredJobPostDraft(raw: string | null): JobPostDraft | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<JobPostDraft>;
+    if (
+      typeof parsed.title !== "string" ||
+      typeof parsed.category !== "string" ||
+      typeof parsed.description !== "string" ||
+      typeof parsed.timelineEstimate !== "string" ||
+      typeof parsed.deliverables !== "string" ||
+      typeof parsed.budget !== "number" ||
+      !Array.isArray(parsed.skills)
+    ) {
+      return null;
+    }
+
+    return {
+      id: typeof parsed.id === "string" && parsed.id.trim() ? parsed.id : undefined,
+      title: parsed.title,
+      category: parsed.category,
+      description: parsed.description,
+      timelineEstimate: parsed.timelineEstimate,
+      deliverables: parsed.deliverables,
+      budget: parsed.budget,
+      minimumSalary:
+        typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)
+          ? parsed.minimumSalary
+          : 0,
+      skills: normalizeJobPostSkills(parsed.skills),
+      status: typeof parsed.status === "string" ? parsed.status : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const clientEmail = getClientEmailFromSSP(context);
   if (!clientEmail) {
@@ -269,8 +306,8 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
       setTimelineMonths(months);
       setTimelineWeeks(weeks);
       setSkills(normalizeJobPostSkills(d.skills));
-      if (d.id) setDraftId(d.id);
-      if (d.status) setDraftStatus(d.status);
+      setDraftId(d.id ?? null);
+      setDraftStatus(d.status ?? null);
       setOpenSkillPopovers({});
       setSkillSearchQueries({});
       // Always land on step 1 ("Post Your First Project"); step 2 fields stay prefilled when they continue.
@@ -278,17 +315,17 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     }
 
     async function loadDraft() {
-      let localMinimumSalary: number | null = null;
-      try {
-        const raw = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<JobPostDraft>;
-          if (typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)) {
-            localMinimumSalary = parsed.minimumSalary;
-          }
-        }
-      } catch {
-        // ignore local draft parse errors
+      const localDraft = parseStoredJobPostDraft(
+        window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY),
+      );
+      const localMinimumSalary =
+        typeof localDraft?.minimumSalary === "number" && Number.isFinite(localDraft.minimumSalary)
+          ? localDraft.minimumSalary
+          : null;
+
+      if (fromReview && localDraft && !cancelled) {
+        applyDraftFromJobPostShape(localDraft);
+        return;
       }
 
       try {
@@ -328,33 +365,8 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
         // fall through to localStorage
       }
 
-      const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-      if (rawDraft && !cancelled) {
-        try {
-          const parsed = JSON.parse(rawDraft) as Partial<JobPostDraft>;
-          if (
-            typeof parsed.title === "string" &&
-            typeof parsed.category === "string" &&
-            typeof parsed.description === "string" &&
-            typeof parsed.timelineEstimate === "string" &&
-            typeof parsed.deliverables === "string" &&
-            typeof parsed.budget === "number" &&
-            Array.isArray(parsed.skills)
-          ) {
-            applyDraftFromJobPostShape({
-              title: parsed.title,
-              category: parsed.category,
-              description: parsed.description,
-              timelineEstimate: parsed.timelineEstimate,
-              deliverables: parsed.deliverables,
-              budget: parsed.budget,
-              minimumSalary: typeof parsed.minimumSalary === "number" ? parsed.minimumSalary : 0,
-              skills: normalizeJobPostSkills(parsed.skills),
-            });
-          }
-        } catch {
-          // keep defaults
-        }
+      if (localDraft && !cancelled) {
+        applyDraftFromJobPostShape(localDraft);
       }
     }
 
@@ -529,6 +541,10 @@ export default function ClientJobPostPage({ clientEmail }: { clientEmail: string
     }
 
     // Persist to DB in the background — fire and forget, errors are non-blocking
+    if (draftStatus === "published" || draftStatus === "closed") {
+      return;
+    }
+
     fetch("/api/client/job-post/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

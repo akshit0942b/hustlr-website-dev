@@ -1,6 +1,6 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { LogOut, MapPin } from "lucide-react";
 import Nav from "@/src/components/Nav";
 import { Button } from "@/components/ui/button";
@@ -56,9 +56,53 @@ function queryViewReadonly(router: ReturnType<typeof useRouter>): boolean {
   return false;
 }
 
+function parseStoredJobPostDraft(raw: string | null): JobPostDraft | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<JobPostDraft>;
+    if (
+      typeof parsed.title !== "string" ||
+      typeof parsed.category !== "string" ||
+      typeof parsed.description !== "string" ||
+      typeof parsed.timelineEstimate !== "string" ||
+      typeof parsed.deliverables !== "string" ||
+      typeof parsed.budget !== "number" ||
+      !Array.isArray(parsed.skills)
+    ) {
+      return null;
+    }
+
+    const validSkills = parsed.skills.filter(
+      (item): item is SkillItem =>
+        typeof item?.name === "string" &&
+        (item?.level === "Required" || item?.level === "Good to have"),
+    );
+
+    return {
+      id: typeof parsed.id === "string" && parsed.id.trim() ? parsed.id : undefined,
+      title: parsed.title,
+      category: parsed.category,
+      description: parsed.description,
+      timelineEstimate: parsed.timelineEstimate,
+      deliverables: parsed.deliverables,
+      budget: parsed.budget,
+      minimumSalary:
+        typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)
+          ? parsed.minimumSalary
+          : 0,
+      skills: validSkills,
+      status: typeof parsed.status === "string" ? parsed.status : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: string }) {
   const router = useRouter();
   const isReadOnlyView = queryViewReadonly(router);
+  const polishSignatureRef = useRef<string | null>(null);
   const [previewTab, setPreviewTab] = useState<"details" | "client">("details");
   const [draft, setDraft] = useState<JobPostDraft | null>(null);
   const [clientProfile, setClientProfile] = useState<ClientProfile>(DEFAULT_CLIENT_PROFILE);
@@ -70,22 +114,29 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
     if (!router.isReady) return;
 
     async function loadDraft() {
-      let localMinimumSalary: number | null = null;
-      try {
-        const raw = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as Partial<JobPostDraft>;
-          if (typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)) {
-            localMinimumSalary = parsed.minimumSalary;
-          }
-        }
-      } catch {
-        // ignore local draft parse errors
+      const requestedId =
+        typeof router.query.id === "string" && router.query.id.trim().length > 0
+          ? router.query.id.trim()
+          : null;
+      const localDraft = parseStoredJobPostDraft(
+        window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY),
+      );
+      const localMinimumSalary =
+        typeof localDraft?.minimumSalary === "number" && Number.isFinite(localDraft.minimumSalary)
+          ? localDraft.minimumSalary
+          : null;
+      const localDraftMatchesRequest =
+        !!localDraft && (!requestedId || localDraft.id === requestedId);
+
+      if (!isReadOnlyView && localDraftMatchesRequest && localDraft) {
+        setDraft(localDraft);
+        setIsLoadingDraft(false);
+        return;
       }
 
       try {
-        const fetchUrl = router.query.id
-          ? `/api/client/job-post/get?id=${router.query.id}`
+        const fetchUrl = requestedId
+          ? `/api/client/job-post/get?id=${requestedId}`
           : "/api/client/job-post/get";
         
         const res = await fetch(fetchUrl);
@@ -114,49 +165,17 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
       }
 
       // Fallback to localStorage
-      const rawDraft = window.localStorage.getItem(JOB_POST_DRAFT_STORAGE_KEY);
-      if (!rawDraft) {
+      if (!localDraftMatchesRequest || !localDraft) {
         setIsLoadingDraft(false);
         return;
       }
-      try {
-        const parsed = JSON.parse(rawDraft) as Partial<JobPostDraft>;
-        if (
-          typeof parsed.title === "string" &&
-          typeof parsed.category === "string" &&
-          typeof parsed.description === "string" &&
-          typeof parsed.timelineEstimate === "string" &&
-          typeof parsed.deliverables === "string" &&
-          typeof parsed.budget === "number" &&
-          Array.isArray(parsed.skills)
-        ) {
-          const validSkills = parsed.skills.filter(
-            (item): item is SkillItem =>
-              typeof item?.name === "string" &&
-              (item?.level === "Required" || item?.level === "Good to have"),
-          );
-          setDraft({
-            title: parsed.title,
-            category: parsed.category,
-            description: parsed.description,
-            timelineEstimate: parsed.timelineEstimate,
-            deliverables: parsed.deliverables,
-            budget: parsed.budget,
-            minimumSalary:
-              typeof parsed.minimumSalary === "number" && Number.isFinite(parsed.minimumSalary)
-                ? parsed.minimumSalary
-                : 0,
-            skills: validSkills,
-          });
-        }
-      } catch {
-        // Keep null draft on parse failure.
-      }
+
+      setDraft(localDraft);
       setIsLoadingDraft(false);
     }
 
     void loadDraft();
-  }, [router.isReady, router.query.id]);
+  }, [isReadOnlyView, router.isReady, router.query.id]);
 
   // Load client profile — try DB first, fall back to localStorage
   useEffect(() => {
@@ -186,6 +205,96 @@ export default function ClientJobPostReviewPage({ clientEmail }: { clientEmail: 
 
     void loadProfile();
   }, []);
+
+  useEffect(() => {
+    if (!draft || isReadOnlyView) return;
+
+    const draftSnapshot = draft;
+    const currentSignature = [draftSnapshot.title, draftSnapshot.description, draftSnapshot.deliverables].join("||");
+    if (polishSignatureRef.current === currentSignature) return;
+
+    let cancelled = false;
+
+    async function polishDraftCopy() {
+      try {
+        polishSignatureRef.current = currentSignature;
+        const res = await fetch("/api/client/job-post/polish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: draftSnapshot.title,
+            description: draftSnapshot.description,
+            deliverables: draftSnapshot.deliverables,
+          }),
+        });
+
+        if (!res.ok || cancelled) return;
+
+        const polished = (await res.json()) as Partial<{
+          title: string;
+          description: string;
+          deliverables: string;
+        }>;
+
+        const nextTitle =
+          typeof polished.title === "string" && polished.title.trim()
+            ? polished.title.trim()
+            : draftSnapshot.title;
+        const nextDescription =
+          typeof polished.description === "string" && polished.description.trim()
+            ? polished.description.trim()
+            : draftSnapshot.description;
+        const nextDeliverables =
+          typeof polished.deliverables === "string" && polished.deliverables.trim()
+            ? polished.deliverables.trim()
+            : draftSnapshot.deliverables;
+
+        if (
+          nextTitle === draftSnapshot.title &&
+          nextDescription === draftSnapshot.description &&
+          nextDeliverables === draftSnapshot.deliverables
+        ) {
+          return;
+        }
+
+        const nextDraft: JobPostDraft = {
+          ...draftSnapshot,
+          title: nextTitle,
+          description: nextDescription,
+          deliverables: nextDeliverables,
+        };
+
+        polishSignatureRef.current = [nextTitle, nextDescription, nextDeliverables].join("||");
+        setDraft(nextDraft);
+
+        try {
+          window.localStorage.setItem(JOB_POST_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+        } catch {
+          // non-critical
+        }
+
+        if (draftSnapshot.status === "published" || draftSnapshot.status === "closed") {
+          return;
+        }
+
+        fetch("/api/client/job-post/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...nextDraft, email: clientEmail }),
+        }).catch(() => {
+          // non-critical
+        });
+      } catch {
+        // non-critical
+      }
+    }
+
+    void polishDraftCopy();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clientEmail, draft, isReadOnlyView]);
 
   async function onPostProject() {
     if (isPosting || !draft) return;
